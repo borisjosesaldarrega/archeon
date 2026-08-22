@@ -1,0 +1,13 @@
+{
+  "timestamp": "2026-08-22T04:24:45.461853+00:00",
+  "elapsed_hours": 0.0031,
+  "wake_name": "Archeon",
+  "cpu_percent_avg": 9.209,
+  "cpu_percent_peak": 60.9,
+  "ram_mb_avg": 55.995,
+  "ram_mb_peak": 154.988,
+  "detections": 0,
+  "rejected_candidates": 1,
+  "errors": 0,
+  "manual_note": "Label spoken trials separately to calculate false negatives; ambient detections are false-positive candidates."
+}

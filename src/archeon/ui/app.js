@@ -209,6 +209,7 @@
     document.getElementById("settings-theme").value=result.settings.appearance.theme;
     document.getElementById("settings-wake-name").value=result.settings.assistant.wake_name;
     document.getElementById("settings-context-language").checked=result.settings.assistant.context_language_enabled;
+    document.getElementById("settings-wake-enabled").checked=result.settings.assistant.wake_word_enabled;
     document.getElementById("settings-startup-sound").checked=result.settings.startup.startup_sound;
     document.getElementById("settings-cloud").checked=result.settings.privacy.cloud_processing_allowed;
     document.getElementById("settings-message").textContent="";
@@ -220,7 +221,7 @@
     const result=await postAction("settings.update",{changes:{
       language:{interface:interfaceLanguage,conversation:document.getElementById("settings-conversation-language").value},
       appearance:{theme:document.getElementById("settings-theme").value},
-      assistant:{wake_name:document.getElementById("settings-wake-name").value,context_language_enabled:document.getElementById("settings-context-language").checked},
+      assistant:{wake_name:document.getElementById("settings-wake-name").value,wake_word_enabled:document.getElementById("settings-wake-enabled").checked,activation_mode:document.getElementById("settings-wake-enabled").checked?"wake_word":"push_to_talk",context_language_enabled:document.getElementById("settings-context-language").checked},
       startup:{startup_sound:document.getElementById("settings-startup-sound").checked},
       privacy:{cloud_processing_allowed:document.getElementById("settings-cloud").checked},
     }});
@@ -272,6 +273,7 @@
     events.addEventListener("voice.cycle.completed",()=>setState("idle","state.ready"));
     events.addEventListener("voice.cycle.cancelled",()=>setState("idle","state.ready"));
     events.addEventListener("voice.cycle.error",(message)=>{const error=JSON.parse(message.data).payload?.error||"voice_error";document.getElementById("result").textContent=`${t("state.error")}: ${messages[`error.${error}`]||error}`;setState("error","state.error_detail");});
+    events.addEventListener("wake.detected",()=>setState("listening","state.listening_detail"));
     events.addEventListener("music.started",(message)=>{const payload=JSON.parse(message.data).payload||{};art.classList.add("cover-changing");setTimeout(()=>{art.src=payload.artwork_url?`${payload.artwork_url}?token=${encodeURIComponent(runtime.token)}`:"/logo_asitente.png";art.classList.remove("cover-changing");},120);title.textContent=payload.title||t("music.demo");artist.textContent=payload.artist||t("music.local");document.getElementById("music-seek").max=payload.duration_ms||1;document.getElementById("music-seek").value=0;musicPanel.classList.add("active");setState("music","state.music_detail");});
     events.addEventListener("music.paused",()=>setState("paused","state.paused_detail"));
     events.addEventListener("music.resumed",()=>setState("music","state.music_detail"));

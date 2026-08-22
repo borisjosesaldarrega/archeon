@@ -55,6 +55,7 @@ class DesktopHost:
                 media_status_handler=self._media_status_handler,
                 artwork_handler=self._artwork_handler,
                 locale=self._config.locale,
+                display_name=self._config.assistant.wake_name,
             ).run(
                 auto_exit_seconds=auto_exit_seconds
             )

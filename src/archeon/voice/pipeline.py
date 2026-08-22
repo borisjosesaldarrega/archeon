@@ -38,6 +38,8 @@ class VoicePipeline(ManagedComponent):
         profile_provider: Callable[[], str] | None = None,
         tts_config_provider: Callable[[], dict[str, Any]] | None = None,
         barge_in_provider: Callable[[], bool] | None = None,
+        wake_enabled_provider: Callable[[], bool] | None = None,
+        wake_name_provider: Callable[[], str] | None = None,
     ) -> None:
         super().__init__("voice")
         self._events = events
@@ -53,10 +55,14 @@ class VoicePipeline(ManagedComponent):
         self._locale_provider = locale_provider or (lambda: "es")
         self._tts_config_provider = tts_config_provider or (lambda: {})
         self._barge_in_provider = barge_in_provider or (lambda: False)
+        self._wake_enabled_provider = wake_enabled_provider or (lambda: False)
+        self._wake_name_provider = wake_name_provider or (lambda: "Archeon")
         self._stop_event = Event()
         self._tts_stop_event = Event()
         self._barge_monitor_stop = Event()
         self._thread: Thread | None = None
+        self._wake_thread: Thread | None = None
+        self._wake_stop = Event()
         self._lock = RLock()
         self._busy = False
 
@@ -83,7 +89,126 @@ class VoicePipeline(ManagedComponent):
             "profile": profile.name,
             "model_id": model.id,
             "languages": list(model.languages),
+            "wake_word_enabled": self._wake_enabled_provider(),
+            "wake_name": self._wake_name_provider(),
+            "wake_monitor_active": bool(self._wake_thread and self._wake_thread.is_alive()),
         }
+
+    def sync_wake_word(self) -> None:
+        thread = self._wake_thread
+        if self._wake_enabled_provider() and (thread is None or not thread.is_alive()):
+            self._wake_stop.clear()
+            self._wake_thread = Thread(target=self._run_wake_monitor, name="archeon-wake-word", daemon=False)
+            self._wake_thread.start()
+        elif not self._wake_enabled_provider() and thread is not None:
+            self._wake_stop.set()
+
+    @classmethod
+    def split_wake_command(cls, text: str, wake_name: str) -> str | None:
+        from difflib import SequenceMatcher
+        words = cls._normalize_wake_text(text).split()
+        wake_words = cls._normalize_wake_text(wake_name).split()
+        if not wake_words or len(words) < len(wake_words):
+            return None
+        for start in range(min(2, len(words) - len(wake_words) + 1)):
+            candidate = " ".join(words[start:start + len(wake_words)])
+            expected = " ".join(wake_words)
+            product_alias = expected == "archeon" and candidate in {"arqueon", "archon"}
+            if candidate == expected or product_alias or (len(expected) >= 4 and SequenceMatcher(None, candidate, expected).ratio() >= 0.82):
+                return " ".join(words[start + len(wake_words):])
+        return None
+
+    @staticmethod
+    def _normalize_wake_text(text: str) -> str:
+        import unicodedata
+        value = unicodedata.normalize("NFKD", text.casefold())
+        return " ".join("".join(c for c in value if c.isalnum() or c.isspace()).split())
+
+    def _wake_candidate(self) -> bytes:
+        import webrtcvad
+        vad = webrtcvad.Vad(3)
+        frames: list[bytes] = []
+        pre_roll: deque[bytes] = deque(maxlen=12)
+        recent: deque[bool] = deque(maxlen=5)
+        started = False
+        silence = total = 0
+        backend = self._audio.acquire(AudioMode.CAPTURING, config=AudioSessionConfig(
+            sample_rate=self.SAMPLE_RATE, channels=1, block_ms=self.FRAME_MS,
+            input_device_id=(self._input_device_provider() if self._input_device_provider else self._input_device_id),
+        ))
+        if not isinstance(backend, WasapiSharedCapture):
+            raise RuntimeError("invalid capture backend")
+        def consume(chunk: bytes) -> bool:
+            nonlocal started, silence, total
+            total += 1
+            voiced = vad.is_speech(chunk, self.SAMPLE_RATE)
+            recent.append(voiced)
+            if not started:
+                pre_roll.append(chunk)
+                if len(recent) == 5 and sum(recent) >= 4:
+                    started = True
+                    frames.extend(pre_roll)
+                return True
+            frames.append(chunk)
+            silence = silence + 1 if not voiced else 0
+            return silence < 30 and len(frames) < 250
+        try:
+            backend.capture(self._wake_stop, consume)
+        finally:
+            self._audio.release()
+        return b"".join(frames)
+
+    def _run_wake_monitor(self) -> None:
+        rejected = 0
+        try:
+            while not self._wake_stop.is_set() and self._wake_enabled_provider():
+                if self.busy:
+                    self._wake_stop.wait(0.25)
+                    continue
+                try:
+                    pcm = self._wake_candidate()
+                    if not pcm or self._wake_stop.is_set():
+                        continue
+                    text = self._stt.transcribe(pcm, self.SAMPLE_RATE)
+                except (OSError, RuntimeError) as error:
+                    self._events.publish("wake.monitor.error", {"error": str(error)}, source="wake")
+                    self._wake_stop.wait(1.0)
+                    continue
+                finally:
+                    self._stt.unload()
+                command = self.split_wake_command(text, self._wake_name_provider())
+                if command is None:
+                    rejected += 1
+                    self._events.publish("wake.candidate.rejected", {"count": rejected}, source="wake")
+                    continue
+                self._events.publish("wake.detected", {"wake_name": self._wake_name_provider(), "command": command}, source="wake")
+                if command:
+                    self._run_wake_command(command)
+                else:
+                    self.start_cycle()
+        finally:
+            self._stt.unload()
+            self._wake_thread = None
+
+    def _run_wake_command(self, text: str) -> None:
+        with self._lock:
+            if self._busy:
+                return
+            self._busy = True
+        try:
+            self._events.publish("assistant.processing.started", {"text": text, "wake_word": True}, source="voice")
+            response = self._command_handler(text)
+            self._events.publish("assistant.processing.completed", response, source="voice")
+            spoken = str(response.get("message", ""))
+            if response.get("ok") and spoken:
+                self._events.publish("assistant.speaking.started", {"text": spoken}, source="voice")
+                self._tts.speak(spoken, self._tts_stop_event, locale=self._locale_provider(), **self._tts_config_provider())
+                self._events.publish("assistant.speaking.ended", source="voice")
+        except Exception as error:
+            self._events.publish("voice.cycle.error", {"error": str(error)}, source="voice")
+        finally:
+            with self._lock:
+                self._busy = False
 
     def devices(self) -> list[dict[str, Any]]:
         return WasapiSharedCapture.devices()
@@ -370,11 +495,18 @@ class VoicePipeline(ManagedComponent):
 
     def _start(self) -> None:
         self._audio.register_backend("wasapi_shared", WasapiSharedCapture)
+        self.sync_wake_word()
 
     def _stop(self) -> None:
+        self._wake_stop.set()
         self.interrupt()
         thread = self._thread
         if thread is not None:
             thread.join(timeout=15.0)
             if thread.is_alive():
                 raise RuntimeError("voice cycle thread did not stop")
+        wake_thread = self._wake_thread
+        if wake_thread is not None:
+            wake_thread.join(timeout=2.0)
+            if wake_thread.is_alive():
+                raise RuntimeError("wake monitor did not stop")

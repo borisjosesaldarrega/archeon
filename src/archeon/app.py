@@ -84,6 +84,8 @@ class ArcheonApplication:
                 "volume": self.configuration.config.voice.tts_volume,
             },
             barge_in_provider=lambda: self.configuration.config.voice.barge_in,
+            wake_enabled_provider=lambda: self.configuration.config.assistant.wake_word_enabled,
+            wake_name_provider=lambda: self.configuration.config.assistant.wake_name,
         )
         self.ui_server = UIServer(
             self.events,
@@ -165,6 +167,7 @@ class ArcheonApplication:
                 {"sections": sorted(changes)},
                 source="application",
             )
+            self.voice.sync_wake_word()
             return {"ok": True, "settings": settings}
         if action == "window.ghost":
             self.configuration.config.ghost.enabled = True

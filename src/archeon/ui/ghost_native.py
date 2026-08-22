@@ -24,12 +24,14 @@ class NativeGhostHost:
         media_status_handler: Callable[[], dict[str, Any]],
         artwork_handler: Callable[[str], tuple[str, bytes] | None],
         locale: str = "es",
+        display_name: str = "Archeon",
     ) -> None:
         self._events = events
         self._config = config
         self._action = action_handler
         self._media_status = media_status_handler
         self._artwork = artwork_handler
+        self._display_name = display_name.strip()[:24] or "Archeon"
         locale_path = Path(__file__).resolve().parent / "locales" / f"ghost-{locale}.json"
         if not locale_path.is_file():
             locale_path = locale_path.with_name("ghost-es.json")
@@ -65,6 +67,7 @@ class NativeGhostHost:
         logo = logo.subsample(reduction, reduction)
         image_item = canvas.create_image(size // 2, size // 2, image=logo)
         status_dot = canvas.create_oval(size - 19, size - 19, size - 10, size - 10, fill="#08d9ff", outline="")
+        canvas.create_text(size // 2, size - 12, text=self._display_name, fill="#b9faff", font=("Segoe UI", max(7, size // 15)))
 
         outcome = "exit"
         state: dict[str, Any] = {

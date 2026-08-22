@@ -11,6 +11,12 @@ from archeon.voice import VoicePipeline
 
 
 class VoiceTests(unittest.TestCase):
+    def test_wake_name_detection_is_accent_tolerant_and_keeps_multilingual_command(self) -> None:
+        self.assertEqual(VoicePipeline.split_wake_command("Archeón, abre Spotify", "Archeon"), "abre spotify")
+        self.assertEqual(VoicePipeline.split_wake_command("Arqueón abre Spotify", "Archeon"), "abre spotify")
+        self.assertEqual(VoicePipeline.split_wake_command("Nova open Spotify", "Nova"), "open spotify")
+        self.assertEqual(VoicePipeline.split_wake_command("Nova ouvre Spotify", "Nova"), "ouvre spotify")
+        self.assertIsNone(VoicePipeline.split_wake_command("abre Spotify", "Archeon"))
     def test_audio_and_model_dependencies_stay_lazy_at_idle(self) -> None:
         events = EventBus()
         audio = AudioManager(events)
