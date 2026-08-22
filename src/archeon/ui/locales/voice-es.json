@@ -13,6 +13,8 @@
   "voice.settings.save": "Guardar configuración",
   "voice.settings.default": "Predeterminado de Windows",
   "voice.settings.model": "Modelo efectivo",
+  "voice.settings.preview": "Probar voz",
+  "voice.settings.preview_text": "Hola, soy Archeon. Esta es una prueba de mi voz.",
   "error.no_speech_detected": "No detecté voz",
   "error.empty_transcription": "No pude entender la frase",
   "error.vosk_model_missing": "Falta el modelo local de voz"

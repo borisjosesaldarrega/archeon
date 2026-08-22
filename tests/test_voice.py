@@ -99,6 +99,34 @@ class VoiceTests(unittest.TestCase):
         pipeline.stop()
         audio.stop()
 
+    def test_tts_preview_is_lazy_and_uses_selected_configuration(self) -> None:
+        class FakeTts:
+            name = "fake-tts"
+
+            def __init__(self) -> None:
+                self.call = None
+
+            def speak(self, text, _stop, *, locale="es", **settings) -> None:
+                self.call = (text, locale, settings)
+
+        events = EventBus()
+        audio = AudioManager(events)
+        pipeline = VoicePipeline(
+            events,
+            audio,
+            lambda text: {"ok": True, "message": text},
+            Path(tempfile.gettempdir()) / "missing-archeon-model",
+            locale_provider=lambda: "fr",
+            tts_config_provider=lambda: {"voice_id": "voice-1", "rate": 2, "volume": 70},
+        )
+        fake_tts = FakeTts()
+        pipeline._tts = fake_tts
+        self.assertTrue(pipeline.preview("Bonjour"))
+        thread = pipeline._thread
+        self.assertIsNotNone(thread)
+        thread.join(timeout=2.0)
+        self.assertEqual(fake_tts.call, ("Bonjour", "fr", {"voice_id": "voice-1", "rate": 2, "volume": 70}))
+
     def test_barge_in_audio_is_processed_as_a_followup_turn(self) -> None:
         class SequencedStt:
             name = "fake-stt"

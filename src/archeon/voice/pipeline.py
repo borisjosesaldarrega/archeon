@@ -114,6 +114,41 @@ class VoicePipeline(ManagedComponent):
         self._tts_stop_event.set()
         self._barge_monitor_stop.set()
 
+    def preview(self, text: str) -> bool:
+        preview_text = text.strip()[:240]
+        if not preview_text:
+            raise ValueError("empty_tts_preview")
+        with self._lock:
+            if self._busy:
+                return False
+            self._busy = True
+            self._tts_stop_event.clear()
+            self._thread = Thread(
+                target=self._run_preview,
+                args=(preview_text,),
+                name="archeon-tts-preview",
+                daemon=False,
+            )
+            self._thread.start()
+            return True
+
+    def _run_preview(self, text: str) -> None:
+        try:
+            self._events.publish("assistant.speaking.started", {"preview": True}, source="voice")
+            self._tts.speak(
+                text,
+                self._tts_stop_event,
+                locale=self._locale_provider(),
+                **self._tts_config_provider(),
+            )
+            self._events.publish("assistant.speaking.ended", {"preview": True}, source="voice")
+        except Exception as error:
+            self._events.publish("voice.preview.error", {"error": str(error)}, source="voice")
+        finally:
+            with self._lock:
+                self._busy = False
+                self._thread = None
+
     def _capture_utterance(self) -> bytes:
         import webrtcvad
 

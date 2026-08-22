@@ -13,6 +13,8 @@
   "voice.settings.save": "Save configuration",
   "voice.settings.default": "Windows default",
   "voice.settings.model": "Effective model",
+  "voice.settings.preview": "Test voice",
+  "voice.settings.preview_text": "Hello, I am Archeon. This is a voice preview.",
   "error.no_speech_detected": "No speech was detected",
   "error.empty_transcription": "I could not understand the phrase",
   "error.vosk_model_missing": "The local voice model is missing"

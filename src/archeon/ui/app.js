@@ -129,6 +129,10 @@
     voiceDialog.showModal();
   });
   document.getElementById("voice-settings-close").addEventListener("click",()=>voiceDialog.close());
+  document.getElementById("voice-settings-preview").addEventListener("click",async()=>{
+    const result=await postAction("voice.preview",{text:t("voice.settings.preview_text")});
+    if(!result.ok)document.getElementById("voice-model-detail").textContent=result.error||"voice_preview_error";
+  });
   document.getElementById("voice-settings-save").addEventListener("click",async()=>{
     const result=await postAction("voice.configure",{
       profile:document.getElementById("voice-profile").value,

@@ -58,7 +58,7 @@ class ArcheonApplication:
             self.handle_command,
             models_root,
             input_device_provider=lambda: self.configuration.config.audio.input_device_id,
-            locale_provider=lambda: self.configuration.config.locale,
+            locale_provider=self._speech_synthesis_locale,
             profile_provider=lambda: self.configuration.config.voice.profile,
             tts_config_provider=lambda: {
                 "voice_id": self.configuration.config.voice.tts_voice_id,
@@ -179,6 +179,12 @@ class ArcheonApplication:
         if action == "voice.stop":
             self.voice.interrupt()
             return {"ok": True}
+        if action == "voice.preview":
+            try:
+                started = self.voice.preview(str(payload.get("text", "")))
+                return {"ok": started, "error": None if started else "voice_busy"}
+            except (ValueError, RuntimeError) as error:
+                return {"ok": False, "error": str(error)}
         if action == "voice.catalog":
             try:
                 catalog = self.voice.catalog()
@@ -272,6 +278,13 @@ class ArcheonApplication:
         except (OSError, ValueError, RuntimeError) as error:
             return {"ok": False, "error": str(error)}
         return {"ok": False, "error": f"unknown action: {action}"}
+
+    def _speech_synthesis_locale(self) -> str:
+        selected = self.configuration.config.language.speech_synthesis
+        if selected != "auto":
+            return selected
+        conversation = self.configuration.config.language.conversation
+        return conversation if conversation != "auto" else self.configuration.config.language.interface
 
     def handle_auth(
         self, operation: str, payload: dict[str, Any], session_token: str
