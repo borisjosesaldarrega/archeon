@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Callable
 from io import BytesIO
 from pathlib import Path
@@ -12,6 +13,13 @@ from typing import Any
 
 from archeon.core.config import GhostConfig
 from archeon.core.events import Event, EventBus
+
+
+def radial_action_ids(media_state: str) -> tuple[str, ...]:
+    """Return the lightweight contextual action set without creating UI state."""
+    if media_state in {"playing", "paused"}:
+        return ("previous", "play_pause", "next", "volume_down", "volume_up", "choose_music", "open")
+    return ("open", "listen", "apps", "games", "favorites", "settings")
 
 
 class NativeGhostHost:
@@ -75,6 +83,7 @@ class NativeGhostHost:
             "rotation_job": None, "click_job": None, "frames": None, "frame_index": 0, "photo": logo,
         }
         drag = {"x": 0, "y": 0, "moved": False}
+        radial_windows: list[Any] = []
 
         def set_color(color: str, width: int = 2) -> None:
             canvas.itemconfigure(ring, outline=color, width=width)
@@ -178,10 +187,11 @@ class NativeGhostHost:
             elif event_type == "voice.cycle.error":
                 set_state("error")
 
-        def invoke(action: str) -> None:
-            result = self._action(action, {})
+        def invoke(action: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+            result = self._action(action, payload or {})
             if not result.get("ok"):
                 set_state("error")
+            return result
 
         def toggle_media() -> None:
             if state["media"] == "playing":
@@ -195,6 +205,60 @@ class NativeGhostHost:
             nonlocal outcome
             outcome = "main"
             root.quit()
+
+        def close_radial() -> None:
+            while radial_windows:
+                try:
+                    radial_windows.pop().destroy()
+                except tk.TclError:
+                    pass
+
+        def launcher_menu(category: str, x: int, y: int) -> None:
+            result = invoke("launcher.list", {"category": category})
+            submenu = tk.Menu(root, tearoff=False)
+            for item in result.get("items", [])[:24]:
+                submenu.add_command(label=str(item.get("name", "")), command=lambda item_id=item.get("id"): invoke("launcher.open", {"id": item_id}))
+            if not result.get("items"):
+                submenu.add_command(label="Sin elementos", state="disabled")
+            submenu.tk_popup(x, y)
+
+        def volume(delta: float) -> None:
+            current = self._media_status()
+            invoke("media.volume", {"volume": max(0.0, min(1.0, float(current.get("volume", 0.7)) + delta))})
+
+        def show_radial() -> None:
+            if radial_windows:
+                close_radial()
+                return
+            action_ids = radial_action_ids(str(state["media"]))
+            if "previous" in action_ids:
+                actions = [
+                    ("⏮", lambda *_: invoke("media.previous")),
+                    ("⏯", lambda *_: toggle_media()),
+                    ("⏭", lambda *_: invoke("media.next")),
+                    ("−", lambda *_: volume(-0.1)),
+                    ("+", lambda *_: volume(0.1)),
+                    ("♫", lambda *_: invoke("media.choose")),
+                    ("↗", lambda *_: expand()),
+                ]
+            else:
+                actions = [
+                    ("↗", lambda *_: expand()),
+                    ("🎙", lambda *_: invoke("voice.listen")),
+                    ("A", lambda x, y: launcher_menu("app", x, y)),
+                    ("G", lambda x, y: launcher_menu("game", x, y)),
+                    ("★", lambda x, y: launcher_menu("favorites", x, y)),
+                    ("⚙", lambda *_: expand()),
+                ]
+            center_x, center_y = root.winfo_x() + size // 2, root.winfo_y() + size // 2
+            radius, edge = max(76, size), 42
+            for index, (label, callback) in enumerate(actions):
+                angle = -math.pi / 2 + (2 * math.pi * index / len(actions))
+                x, y = int(center_x + math.cos(angle) * radius - edge / 2), int(center_y + math.sin(angle) * radius - edge / 2)
+                window = tk.Toplevel(root); window.overrideredirect(True); window.attributes("-topmost", True); window.geometry(f"{edge}x{edge}+{x}+{y}"); window.configure(bg="#010101")
+                button = tk.Button(window, text=label, bg="#101820", fg="#00f3ff", activebackground="#00f3ff", activeforeground="#001013", relief="flat", command=lambda cb=callback, px=x, py=y: (close_radial(), cb(px, py)))
+                button.pack(fill="both", expand=True)
+                radial_windows.append(window)
 
         menu = tk.Menu(root, tearoff=False)
         menu.add_command(label=self._text["ghost.play_pause"], command=toggle_media)
@@ -215,9 +279,15 @@ class NativeGhostHost:
             root.geometry(f"+{root.winfo_x() + dx}+{root.winfo_y() + dy}")
             drag["x"], drag["y"] = event.x_root, event.y_root
 
+        def delayed_radial() -> None:
+            state["click_job"] = None
+            show_radial()
+
         def release(_event) -> None:
             if not drag["moved"]:
-                state["click_job"] = root.after(220, toggle_media)
+                if state["click_job"] is not None:
+                    root.after_cancel(state["click_job"])
+                state["click_job"] = root.after(220, delayed_radial)
 
         def double_click(_event) -> None:
             if state["click_job"] is not None:
@@ -258,6 +328,7 @@ class NativeGhostHost:
         try:
             root.mainloop()
         finally:
+            close_radial()
             stop_rotation()
             if state["click_job"] is not None:
                 root.after_cancel(state["click_job"])

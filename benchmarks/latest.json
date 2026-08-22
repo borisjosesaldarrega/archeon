@@ -1,17 +1,17 @@
 {
-  "timestamp": "2026-08-22T04:12:16.733129+00:00",
+  "timestamp": "2026-08-22T04:37:42.395562+00:00",
   "platform": "win32",
   "python": "3.12.13",
   "executable": "C:\\Users\\salda\\Desktop\\asistente\\.venv-archeon\\Scripts\\python.exe",
   "scenarios": [
     {
-      "scenario": "headless",
-      "core_startup_ms": 20.228,
+      "scenario": "ghost",
+      "core_startup_ms": 17.007,
       "ui_process_ready_ms": null,
-      "ram_idle_mb_avg": 30.441,
-      "ram_idle_mb_peak": 30.441,
-      "private_memory_mb_avg": 18.801,
-      "private_memory_mb_peak": 18.801,
+      "ram_idle_mb_avg": 40.938,
+      "ram_idle_mb_peak": 40.938,
+      "private_memory_mb_avg": 23.692,
+      "private_memory_mb_peak": 23.707,
       "cpu_idle_percent_avg": 0.0,
       "cpu_idle_percent_peak": 0.0,
       "process_count": 1,
@@ -24,6 +24,27 @@
       "exit_code": 0,
       "stderr": "",
       "stdout_tail": ""
+    },
+    {
+      "scenario": "ghost_music",
+      "core_startup_ms": 19.456,
+      "ui_process_ready_ms": null,
+      "ram_idle_mb_avg": 45.16,
+      "ram_idle_mb_peak": 45.16,
+      "private_memory_mb_avg": 24.832,
+      "private_memory_mb_peak": 24.832,
+      "cpu_idle_percent_avg": 3.038,
+      "cpu_idle_percent_peak": 12.5,
+      "process_count": 1,
+      "process_names": [
+        "python.exe"
+      ],
+      "music_started_confirmed": true,
+      "gpu_percent": null,
+      "gpu_note": "Per-process GPU counters are unavailable through psutil on this host.",
+      "exit_code": 0,
+      "stderr": "",
+      "stdout_tail": "{\"event\":\"archeon.benchmark.music\",\"ok\":true}"
     }
   ]
 }
