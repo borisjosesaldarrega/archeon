@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "archeon"
+version = "10.0.0.dev0"
+description = "Lightweight, modular ARCHEON assistant core"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+desktop = ["pywebview==6.2.1"]
+benchmark = ["psutil==7.2.2"]
+
+[project.scripts]
+archeon = "archeon.__main__:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"archeon.ui" = ["*.html", "*.css", "*.js", "*.png", "*.ico"]
+
