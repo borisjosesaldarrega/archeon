@@ -1,5 +1,9 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""Lean one-file build for the modular ARCHEON 10 Core."""
+"""Lean one-folder build for the modular ARCHEON 10 Core.
+
+The installer remains a single compressed executable, while the installed app
+avoids PyInstaller's per-launch extraction process and its temporary parent.
+"""
 
 from pathlib import Path
 
@@ -49,9 +53,8 @@ pyz = PYZ(a.pure)
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.datas,
     [],
+    exclude_binaries=True,
     name="Archeo32n",
     debug=False,
     bootloader_ignore_signals=False,
@@ -60,4 +63,13 @@ exe = EXE(
     console=False,
     disable_windowed_traceback=False,
     icon=str(ROOT / "web" / "logo_asitente.ico"),
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.datas,
+    strip=False,
+    upx=True,
+    name="Archeo32n",
 )

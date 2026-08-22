@@ -32,6 +32,8 @@ dist/
 Instalador_Final/
 build-v10/
 dist-v10/
+build-dir/
+dist-dir/
 ffmpeg-*_build/
 web/*.exe
 pyarmor_runtime_*/

@@ -33,7 +33,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
-Source: "dist\Archeo32n.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "dist-dir\Archeo32n\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "models\vosk-model-small-es-0.42\*"; DestDir: "{app}\models\vosk-model-small-es-0.42"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
