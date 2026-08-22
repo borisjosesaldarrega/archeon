@@ -21,7 +21,7 @@ SetupIconFile=web\logo_asitente.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 CloseApplications=yes
 RestartApplications=no
-AppMutex=ARCHEON.Core.SingleInstance
+AppMutex=Local\ARCHEON.Core.SingleInstance
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 
