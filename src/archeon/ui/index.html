@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>ARCHEON</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body class="state-idle">
+  <main class="shell">
+    <header class="topbar">
+      <div><strong>ARCHEON</strong><span>CORE 10</span></div>
+      <button id="ghost-button" class="quiet-button" type="button">Modo Fantasma</button>
+    </header>
+    <section class="hero">
+      <div class="orb-stage" aria-label="Estado de ARCHEON">
+        <div class="ring ring-one"></div>
+        <div class="ring ring-two"></div>
+        <div class="orb">
+          <img id="core-art" src="/logo_asitente.png" alt="Orbe ARCHEON">
+        </div>
+      </div>
+      <p id="assistant-state" class="state-label">EN LÍNEA</p>
+      <p class="substate">CORE LOCAL · MÓDULOS PESADOS SUSPENDIDOS</p>
+    </section>
+    <section id="music-panel" class="music-panel" aria-hidden="true">
+      <div class="track-copy"><strong id="track-title">Sin reproducción activa</strong><span id="track-artist"></span></div>
+      <div class="media-controls"><button type="button" disabled>◀</button><button type="button" disabled>▶</button><button type="button" disabled>▶▶</button></div>
+    </section>
+    <section class="command-panel">
+      <form id="command-form">
+        <label for="command-input">Orden local</label>
+        <div class="command-row">
+          <input id="command-input" autocomplete="off" maxlength="2000" placeholder="Prueba: estado del sistema">
+          <button type="submit">Ejecutar</button>
+        </div>
+      </form>
+      <pre id="result" aria-live="polite">Core listo.</pre>
+    </section>
+  </main>
+  <script src="/runtime-config.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>
+

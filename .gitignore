@@ -16,6 +16,8 @@ guest_config.json
 
 # Python and local environments
 .venv/
+.venv-archeon/
+.runtime-*/
 __pycache__/
 *.py[cod]
 *.pyd

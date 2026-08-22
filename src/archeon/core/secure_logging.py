@@ -65,3 +65,12 @@ def log_event(logger: logging.Logger, event: str, **fields: Any) -> None:
     safe_fields = {key: redact(value) for key, value in fields.items()}
     logger.info("%s %s", event, json.dumps(safe_fields, ensure_ascii=False, sort_keys=True))
 
+
+def close_logger(logger: logging.Logger) -> None:
+    """Flush and close owned handlers so Windows releases the log immediately."""
+    for handler in tuple(logger.handlers):
+        try:
+            handler.flush()
+        finally:
+            handler.close()
+            logger.removeHandler(handler)
