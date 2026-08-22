@@ -213,6 +213,11 @@ class UIServer(ManagedComponent):
                 if not self._authorized():
                     self._json({"ok": False, "error": "unauthorized"}, HTTPStatus.UNAUTHORIZED)
                     return
+                query = parse_qs(urlparse(self.path).query)
+                session_token = query.get("session", [""])[0]
+                if not owner._session_handler(session_token).get("ok"):
+                    self._json({"ok": False, "error": "session_required"}, HTTPStatus.UNAUTHORIZED)
+                    return
                 self.send_response(HTTPStatus.OK)
                 self._security_headers("text/event-stream; charset=utf-8")
                 self.send_header("Cache-Control", "no-cache")

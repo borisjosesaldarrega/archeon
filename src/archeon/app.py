@@ -13,13 +13,14 @@ from archeon.core.config import ConfigurationManager, default_data_dir
 from archeon.core.events import EventBus
 from archeon.core.lifecycle import LifecycleManager
 from archeon.core.orchestrator import Orchestrator
-from archeon.core.permissions import PermissionEngine
+from archeon.core.permissions import PermissionEngine, RiskLevel
 from archeon.core.secure_logging import close_logger, configure_logging, log_event
 from archeon.core.tools import ToolEngine
 from archeon.database import DatabaseManager
 from archeon.plugins import PluginManager
 from archeon.system import DeviceSystemEngine
 from archeon.ui.server import UIServer
+from archeon.voice import VoicePipeline
 
 
 class ArcheonApplication:
@@ -39,6 +40,15 @@ class ArcheonApplication:
         self.plugins = PluginManager(self.events, self.data_dir / "plugins")
         self.system = DeviceSystemEngine(self.tools)
         self.orchestrator = Orchestrator(self.events, self.tools)
+        model_path = Path(__file__).resolve().parents[2] / "models" / "vosk-model-small-es-0.42"
+        self.voice = VoicePipeline(
+            self.events,
+            self.audio,
+            self.handle_command,
+            model_path,
+            input_device_provider=lambda: self.configuration.config.audio.input_device_id,
+            locale_provider=lambda: self.configuration.config.locale,
+        )
         self.ui_server = UIServer(
             self.events,
             command_handler=self.handle_command,
@@ -56,6 +66,7 @@ class ArcheonApplication:
                 self.system,
                 self.tools,
                 self.audio,
+                self.voice,
                 self.plugins,
                 self.ui_server,
             )
@@ -113,6 +124,21 @@ class ArcheonApplication:
         if action == "app.exit":
             self.events.publish("ui.window.exit", source="application")
             return {"ok": True}
+        if action == "voice.listen":
+            decision = self.permissions.evaluate(
+                ("microphone.capture",),
+                risk=RiskLevel.MEDIUM,
+                action="voice.listen",
+                reason="Capturar una frase local para reconocer el comando de voz.",
+                confirmer=lambda _request: True,
+            )
+            if not decision.allowed:
+                return {"ok": False, "error": decision.reason}
+            started = self.voice.start_cycle()
+            return {"ok": started, "error": None if started else "voice_unavailable_or_busy"}
+        if action == "voice.stop":
+            self.voice.interrupt()
+            return {"ok": True}
         if action in {"music.started", "music.paused", "music.stopped"}:
             self.events.publish(
                 action,
@@ -138,6 +164,8 @@ class ArcheonApplication:
                     str(payload.get("display_name", "")),
                 )
             elif operation == "logout":
+                self.voice.interrupt()
+                self.permissions.clear_session()
                 return {"ok": self.auth.logout(session_token)}
             else:
                 return {"ok": False, "error": "unknown_auth_operation"}
@@ -159,6 +187,7 @@ class ArcheonApplication:
             "audio_backend_loaded": self.audio.backend_loaded,
             "plugins_loaded": self.plugins.loaded_count,
             "auth_provider": self.auth.provider_name,
+            "voice": self.voice.status(),
             "event_subscribers": self.events.subscriber_count,
         }
 

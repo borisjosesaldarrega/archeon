@@ -1,0 +1,7 @@
+{
+  "voice.ready": "PRESS TO SPEAK · LOCAL VOSK",
+  "voice.heard": "I heard",
+  "error.no_speech_detected": "No speech was detected",
+  "error.empty_transcription": "I could not understand the phrase",
+  "error.vosk_model_missing": "The local voice model is missing"
+}

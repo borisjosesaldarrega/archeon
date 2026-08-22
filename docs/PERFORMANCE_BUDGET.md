@@ -15,6 +15,11 @@ These are provisional engineering gates, not claims about the legacy executable.
 
 Listening, STT, TTS, music and model budgets will be baselined per provider/hardware; no single number is honest before implementations are selected. Each benchmark records wall time, process tree, private/working set, CPU time, GPU engine usage, I/O bytes, handles/threads and request latency.
 
+The first local voice implementation and its host validation are recorded in
+`VOICE_PIPELINE.md`. Its dependencies and model remain optional and lazy; the
+graphical numbers from the 2026-08-21 short benchmark are excluded until the
+WebView2 process-tree sampler is corrected.
+
 ## Measurement protocol
 
 1. Clean boot or documented steady-state machine.
@@ -33,4 +38,3 @@ Listening, STT, TTS, music and model budgets will be baselined per provider/hard
 - No duplicate Core, FFmpeg or audio capture processes.
 - Bounded queues/caches with observable hit rate, size and eviction.
 - UI animations pause when hidden, minimized, static or outside an active state.
-

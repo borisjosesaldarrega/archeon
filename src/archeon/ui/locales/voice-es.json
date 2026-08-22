@@ -1,0 +1,7 @@
+{
+  "voice.ready": "PULSA PARA HABLAR · VOSK LOCAL",
+  "voice.heard": "Escuché",
+  "error.no_speech_detected": "No detecté voz",
+  "error.empty_transcription": "No pude entender la frase",
+  "error.vosk_model_missing": "Falta el modelo local de voz"
+}

@@ -26,6 +26,8 @@ class AudioSessionConfig:
     sample_rate: int = 48_000
     channels: int = 1
     block_ms: int = 20
+    input_device_id: str | None = None
+    output_device_id: str | None = None
 
 
 class AudioBackend(Protocol):
@@ -59,12 +61,22 @@ class AudioManager(ManagedComponent):
     def backend_loaded(self) -> bool:
         return self._backend is not None
 
+    @property
+    def backend(self) -> AudioBackend | None:
+        return self._backend
+
     def register_backend(self, name: str, factory: BackendFactory) -> None:
         if not name or name in self._factories:
             raise ValueError(f"invalid or duplicate audio backend: {name}")
         self._factories[name] = factory
 
-    def acquire(self, mode: AudioMode, *, backend: str = "wasapi_shared") -> None:
+    def acquire(
+        self,
+        mode: AudioMode,
+        *,
+        backend: str = "wasapi_shared",
+        config: AudioSessionConfig | None = None,
+    ) -> AudioBackend:
         if mode is AudioMode.IDLE:
             raise ValueError("acquire requires an active audio mode")
         with self._lock:
@@ -75,13 +87,14 @@ class AudioManager(ManagedComponent):
             except KeyError as error:
                 raise RuntimeError(f"audio backend is unavailable: {backend}") from error
             candidate = factory()
-            config = AudioSessionConfig()
+            config = config or AudioSessionConfig()
             if not config.shared or config.exclusive:
                 raise RuntimeError("ARCHEON audio policy requires shared non-exclusive mode")
             candidate.open(config)
             self._backend = candidate
             self._mode = mode
             self._events.publish("audio.acquired", {"mode": mode.value}, source="audio")
+            return candidate
 
     def release(self) -> None:
         with self._lock:

@@ -5,6 +5,7 @@
   const baseHeaders = {"Content-Type":"application/json","X-Archeon-Token":runtime.token};
   let messages = {};
   let session = null;
+  let events = null;
 
   const t = (key) => messages[key] || key;
   const authMessage = document.getElementById("auth-message");
@@ -12,8 +13,11 @@
   const headers = () => ({...baseHeaders,"X-Archeon-Session":sessionToken()});
 
   async function loadLocale(locale) {
-    const response = await fetch(`/locales/${locale}.json`);
-    messages = await response.json();
+    const [response, voiceResponse] = await Promise.all([
+      fetch(`/locales/${locale}.json`),
+      fetch(`/locales/voice-${locale}.json`),
+    ]);
+    messages = {...await response.json(), ...await voiceResponse.json()};
     document.documentElement.lang = locale;
     document.querySelectorAll("[data-i18n]").forEach((node) => { node.textContent = t(node.dataset.i18n); });
     document.querySelectorAll("[data-i18n-placeholder]").forEach((node) => { node.placeholder = t(node.dataset.i18nPlaceholder); });
@@ -43,6 +47,18 @@
     document.getElementById("profile-name").textContent = identity.display_name;
     document.getElementById("profile-email").textContent = identity.email || t("guest.local");
     document.getElementById("session-badge").textContent = value.mode === "guest" ? t("session.guest") : t("session.account");
+    connectEvents();
+    configureVoice();
+  }
+
+  async function configureVoice() {
+    const button = document.getElementById("voice-button");
+    try {
+      const response = await fetch("/api/health", {headers:baseHeaders});
+      const value = await response.json();
+      button.disabled = !value.voice?.available;
+      button.lastElementChild.textContent = value.voice?.available ? t("voice.ready") : t("voice.experimental");
+    } catch (_) { button.disabled = true; }
   }
 
   function authError(error) {
@@ -69,6 +85,7 @@
   });
   document.getElementById("logout-button").addEventListener("click", async () => {
     try { await auth("logout"); } catch (_) { /* local session is cleared regardless */ }
+    events?.close();
     sessionStorage.removeItem("archeon_session"); location.reload();
   });
 
@@ -86,6 +103,10 @@
   }
   const postAction = async (action) => (await fetch("/api/action", {method:"POST",headers:headers(),body:JSON.stringify({action})})).json();
   document.getElementById("ghost-button").addEventListener("click", () => postAction("window.ghost"));
+  document.getElementById("voice-button").addEventListener("click", async () => {
+    const stopping = document.body.classList.contains("state-speaking") || document.body.classList.contains("state-listening");
+    await postAction(stopping ? "voice.stop" : "voice.listen");
+  });
   document.getElementById("menu-button").addEventListener("click", () => document.getElementById("sidebar").classList.add("open"));
   document.getElementById("close-menu").addEventListener("click", () => document.getElementById("sidebar").classList.remove("open"));
 
@@ -103,13 +124,23 @@
     finally{input.disabled=false;input.focus();setState("idle","state.ready");}
   });
 
-  const events = new EventSource(`/events?token=${encodeURIComponent(runtime.token)}`);
   const eventStates = {"speech.listening.started":"listening","speech.transcription.started":"transcribing","assistant.processing.started":"thinking","tool.execution.started":"executing","assistant.speaking.started":"speaking"};
-  Object.entries(eventStates).forEach(([eventName,state]) => events.addEventListener(eventName,()=>setState(state,`state.${state}_detail`)));
-  events.addEventListener("music.started",(message)=>{const payload=JSON.parse(message.data).payload||{};if(payload.artwork_url)art.src=payload.artwork_url;title.textContent=payload.title||t("music.demo");artist.textContent=payload.artist||t("music.local");musicPanel.classList.add("active");setState("music","state.music_detail");});
-  events.addEventListener("music.paused",()=>setState("paused","state.paused_detail"));
-  events.addEventListener("music.resumed",()=>setState("music","state.music_detail"));
-  events.addEventListener("music.stopped",()=>{art.src="/logo_asitente.png";musicPanel.classList.remove("active");title.textContent=t("music.none");artist.textContent="";setState("idle","state.ready");});
+  function connectEvents() {
+    if (events || !sessionToken()) return;
+    events = new EventSource(`/events?token=${encodeURIComponent(runtime.token)}&session=${encodeURIComponent(sessionToken())}`);
+    Object.entries(eventStates).forEach(([eventName,state]) => events.addEventListener(eventName,()=>setState(state,`state.${state}_detail`)));
+    events.addEventListener("speech.audio.level",(message)=>{const level=JSON.parse(message.data).payload?.level||0;document.querySelectorAll(".amplitude i").forEach((bar,index)=>{bar.style.height=`${5+level*(10+(index%3)*8)}px`;});});
+    events.addEventListener("speech.transcription.completed",(message)=>{const text=JSON.parse(message.data).payload?.text||"";document.getElementById("result").textContent=`${t("voice.heard")}: “${text}”`;});
+    events.addEventListener("assistant.processing.completed",(message)=>{const payload=JSON.parse(message.data).payload||{};document.getElementById("result").textContent=payload.message||"";});
+    events.addEventListener("assistant.speaking.ended",()=>setState("idle","state.ready"));
+    events.addEventListener("voice.cycle.completed",()=>setState("idle","state.ready"));
+    events.addEventListener("voice.cycle.cancelled",()=>setState("idle","state.ready"));
+    events.addEventListener("voice.cycle.error",(message)=>{const error=JSON.parse(message.data).payload?.error||"voice_error";document.getElementById("result").textContent=`${t("state.error")}: ${messages[`error.${error}`]||error}`;setState("error","state.error_detail");});
+    events.addEventListener("music.started",(message)=>{const payload=JSON.parse(message.data).payload||{};if(payload.artwork_url)art.src=payload.artwork_url;title.textContent=payload.title||t("music.demo");artist.textContent=payload.artist||t("music.local");musicPanel.classList.add("active");setState("music","state.music_detail");});
+    events.addEventListener("music.paused",()=>setState("paused","state.paused_detail"));
+    events.addEventListener("music.resumed",()=>setState("music","state.music_detail"));
+    events.addEventListener("music.stopped",()=>{art.src="/logo_asitente.png";musicPanel.classList.remove("active");title.textContent=t("music.none");artist.textContent="";setState("idle","state.ready");});
+  }
 
   function updateClock(){const now=new Date();document.getElementById("clock-time").textContent=now.toLocaleTimeString(document.documentElement.lang,{hour:"2-digit",minute:"2-digit"});document.getElementById("clock-date").textContent=now.toLocaleDateString(document.documentElement.lang,{weekday:"long",day:"numeric",month:"long"});setTimeout(updateClock,60000-(Date.now()%60000));}
   document.getElementById("language-select").addEventListener("change",(event)=>loadLocale(event.target.value));
