@@ -101,7 +101,7 @@
     stateElement.textContent = t(`state.${state}`);
     if (detailKey) detailElement.textContent = t(detailKey);
   }
-  const postAction = async (action) => (await fetch("/api/action", {method:"POST",headers:headers(),body:JSON.stringify({action})})).json();
+  const postAction = async (action, payload = {}) => (await fetch("/api/action", {method:"POST",headers:headers(),body:JSON.stringify({action,...payload})})).json();
   document.getElementById("ghost-button").addEventListener("click", () => postAction("window.ghost"));
   document.getElementById("voice-button").addEventListener("click", async () => {
     const stopping = document.body.classList.contains("state-speaking") || document.body.classList.contains("state-listening");
@@ -110,11 +110,20 @@
   document.getElementById("menu-button").addEventListener("click", () => document.getElementById("sidebar").classList.add("open"));
   document.getElementById("close-menu").addEventListener("click", () => document.getElementById("sidebar").classList.remove("open"));
 
-  const audio = document.getElementById("music-audio");
-  document.getElementById("music-play").addEventListener("click", async () => { await audio.play(); await postAction("music.started"); });
-  document.getElementById("music-pause").addEventListener("click", async () => { audio.pause(); await postAction("music.paused"); });
-  document.getElementById("music-stop").addEventListener("click", async () => { audio.pause(); audio.currentTime=0; await postAction("music.stopped"); });
-  audio.addEventListener("ended", () => postAction("music.stopped"));
+  document.getElementById("music-open").addEventListener("click", async () => {
+    document.getElementById("sidebar").classList.remove("open");
+    const loaded = await postAction("media.choose");
+    if (loaded.cancelled) return;
+    if (!loaded.ok) { document.getElementById("result").textContent=loaded.error||"media_load_error"; return; }
+    await postAction("media.play");
+  });
+  document.getElementById("music-play").addEventListener("click", () => postAction("media.play"));
+  document.getElementById("music-pause").addEventListener("click", () => postAction("media.pause"));
+  document.getElementById("music-stop").addEventListener("click", () => postAction("media.stop"));
+  document.getElementById("music-next").addEventListener("click", () => postAction("media.next"));
+  document.getElementById("music-previous").addEventListener("click", () => postAction("media.previous"));
+  document.getElementById("music-seek").addEventListener("change", (event) => postAction("media.seek", {position_ms:Number(event.target.value)}));
+  document.getElementById("music-volume").addEventListener("change", (event) => postAction("media.volume", {volume:Number(event.target.value)/100}));
 
   document.getElementById("command-form").addEventListener("submit", async (event) => {
     event.preventDefault(); const input=document.getElementById("command-input"); const result=document.getElementById("result"); const text=input.value.trim(); if(!text)return;
@@ -136,9 +145,10 @@
     events.addEventListener("voice.cycle.completed",()=>setState("idle","state.ready"));
     events.addEventListener("voice.cycle.cancelled",()=>setState("idle","state.ready"));
     events.addEventListener("voice.cycle.error",(message)=>{const error=JSON.parse(message.data).payload?.error||"voice_error";document.getElementById("result").textContent=`${t("state.error")}: ${messages[`error.${error}`]||error}`;setState("error","state.error_detail");});
-    events.addEventListener("music.started",(message)=>{const payload=JSON.parse(message.data).payload||{};if(payload.artwork_url)art.src=payload.artwork_url;title.textContent=payload.title||t("music.demo");artist.textContent=payload.artist||t("music.local");musicPanel.classList.add("active");setState("music","state.music_detail");});
+    events.addEventListener("music.started",(message)=>{const payload=JSON.parse(message.data).payload||{};art.classList.add("cover-changing");setTimeout(()=>{art.src=payload.artwork_url?`${payload.artwork_url}?token=${encodeURIComponent(runtime.token)}`:"/logo_asitente.png";art.classList.remove("cover-changing");},120);title.textContent=payload.title||t("music.demo");artist.textContent=payload.artist||t("music.local");document.getElementById("music-seek").max=payload.duration_ms||1;document.getElementById("music-seek").value=0;musicPanel.classList.add("active");setState("music","state.music_detail");});
     events.addEventListener("music.paused",()=>setState("paused","state.paused_detail"));
     events.addEventListener("music.resumed",()=>setState("music","state.music_detail"));
+    events.addEventListener("music.seeked",(message)=>{const payload=JSON.parse(message.data).payload||{};document.getElementById("music-seek").value=payload.position_ms||0;});
     events.addEventListener("music.stopped",()=>{art.src="/logo_asitente.png";musicPanel.classList.remove("active");title.textContent=t("music.none");artist.textContent="";setState("idle","state.ready");});
   }
 

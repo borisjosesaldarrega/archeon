@@ -74,15 +74,17 @@ class ApplicationUITests(unittest.TestCase):
         self.assertIn("EventSource", javascript)
         self.assertNotIn("setInterval", javascript)
         html = (UI_ROOT / "index.html").read_text(encoding="utf-8")
-        self.assertIn('preload="none"', html)
+        self.assertNotIn("<audio", html)
         self.assertTrue((UI_ROOT / "locales" / "es.json").is_file())
         self.assertTrue((UI_ROOT / "locales" / "en.json").is_file())
 
     def test_music_events_are_real_actions(self) -> None:
-        subscription = self.application.events.subscribe("music.*")
-        with self.request("/api/action", body={"action": "music.started"}) as response:
+        subscription = self.application.events.subscribe("music.volume.changed")
+        with self.request("/api/action", body={"action": "media.volume", "volume": 0.35}) as response:
             self.assertTrue(json.load(response)["ok"])
-        self.assertEqual(subscription.get(timeout=0.2).type, "music.started")
+        event = subscription.get(timeout=0.2)
+        self.assertEqual(event.type, "music.volume.changed")
+        self.assertEqual(event.payload["volume"], 0.35)
         subscription.close()
 
     def test_guest_session_is_local_and_logout_invalidates_it(self) -> None:

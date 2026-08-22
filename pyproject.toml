@@ -18,6 +18,10 @@ voice = [
   "webrtcvad-wheels==2.0.14",
   "comtypes==1.4.16",
 ]
+media = [
+  "miniaudio==1.71",
+  "tinytag==2.3.0",
+]
 
 [project.scripts]
 archeon = "archeon.__main__:main"

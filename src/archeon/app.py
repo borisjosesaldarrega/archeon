@@ -17,6 +17,7 @@ from archeon.core.permissions import PermissionEngine, RiskLevel
 from archeon.core.secure_logging import close_logger, configure_logging, log_event
 from archeon.core.tools import ToolEngine
 from archeon.database import DatabaseManager
+from archeon.media import MediaEngine, MediaState
 from archeon.plugins import PluginManager
 from archeon.system import DeviceSystemEngine
 from archeon.ui.server import UIServer
@@ -37,6 +38,11 @@ class ArcheonApplication:
             DevelopmentAuthProvider(self.data_dir / "development-auth.json"),
         )
         self.audio = AudioManager(self.events)
+        self.media = MediaEngine(
+            self.events,
+            self.data_dir,
+            output_device_provider=lambda: self.configuration.config.audio.output_device_id,
+        )
         self.plugins = PluginManager(self.events, self.data_dir / "plugins")
         self.system = DeviceSystemEngine(self.tools)
         self.orchestrator = Orchestrator(self.events, self.tools)
@@ -56,6 +62,7 @@ class ArcheonApplication:
             health_handler=self.health,
             auth_handler=self.handle_auth,
             session_handler=self.handle_session,
+            media_resource_handler=self.media.artwork,
             port=port,
         )
         self.lifecycle = LifecycleManager(
@@ -66,6 +73,7 @@ class ArcheonApplication:
                 self.system,
                 self.tools,
                 self.audio,
+                self.media,
                 self.voice,
                 self.plugins,
                 self.ui_server,
@@ -110,7 +118,8 @@ class ArcheonApplication:
             "correlation_id": response.correlation_id,
         }
 
-    def handle_action(self, action: str) -> dict[str, Any]:
+    def handle_action(self, action: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        payload = payload or {}
         if action == "window.ghost":
             self.configuration.config.ghost.enabled = True
             self.configuration.save()
@@ -134,19 +143,55 @@ class ArcheonApplication:
             )
             if not decision.allowed:
                 return {"ok": False, "error": decision.reason}
+            if self.media.state is MediaState.PLAYING:
+                self.media.pause()
             started = self.voice.start_cycle()
             return {"ok": started, "error": None if started else "voice_unavailable_or_busy"}
         if action == "voice.stop":
             self.voice.interrupt()
             return {"ok": True}
-        if action in {"music.started", "music.paused", "music.stopped"}:
-            self.events.publish(
-                action,
-                {"title": "Pulso de ARCHEON", "artist": "Audio local bajo demanda"},
-                source="application",
-            )
-            log_event(self.logger, action)
-            return {"ok": True}
+        try:
+            if action == "media.load":
+                paths = payload.get("paths")
+                if not isinstance(paths, list) or not all(isinstance(path, str) for path in paths):
+                    return {"ok": False, "error": "invalid_media_paths"}
+                decision = self.permissions.evaluate(
+                    ("filesystem.read.media",),
+                    risk=RiskLevel.READ_ONLY,
+                    action="media.load",
+                    reason="Leer metadata y reproducir los archivos seleccionados.",
+                    confirmer=lambda _request: True,
+                )
+                if not decision.allowed:
+                    return {"ok": False, "error": decision.reason}
+                return {"ok": True, "tracks": self.media.load([Path(path) for path in paths], append=bool(payload.get("append")))}
+            if action == "media.choose":
+                from archeon.ui.native_dialogs import choose_audio_files
+
+                paths = choose_audio_files()
+                if not paths:
+                    return {"ok": True, "cancelled": True, "tracks": []}
+                return {"ok": True, "tracks": self.media.load([Path(path) for path in paths])}
+            if action in {"media.play", "music.started"}:
+                if self.media.current is None:
+                    self.media.load([Path(__file__).resolve().parent / "ui" / "archeon-audio.mp3"])
+                return {"ok": True, "media": self.media.play()}
+            if action in {"media.pause", "music.paused"}:
+                return {"ok": True, "media": self.media.pause()}
+            if action == "media.resume":
+                return {"ok": True, "media": self.media.resume()}
+            if action in {"media.stop", "music.stopped"}:
+                return {"ok": True, "media": self.media.stop_playback()}
+            if action == "media.next":
+                return {"ok": True, "media": self.media.next()}
+            if action == "media.previous":
+                return {"ok": True, "media": self.media.previous()}
+            if action == "media.seek":
+                return {"ok": True, "media": self.media.seek(int(payload.get("position_ms", 0)))}
+            if action == "media.volume":
+                return {"ok": True, "media": self.media.set_volume(float(payload.get("volume", 0.7)))}
+        except (OSError, ValueError, RuntimeError) as error:
+            return {"ok": False, "error": str(error)}
         return {"ok": False, "error": f"unknown action: {action}"}
 
     def handle_auth(
@@ -188,6 +233,7 @@ class ArcheonApplication:
             "plugins_loaded": self.plugins.loaded_count,
             "auth_provider": self.auth.provider_name,
             "voice": self.voice.status(),
+            "media": self.media.status(),
             "event_subscribers": self.events.subscriber_count,
         }
 

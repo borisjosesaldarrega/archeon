@@ -34,10 +34,11 @@ class UIServer(ManagedComponent):
         events: EventBus,
         *,
         command_handler: Callable[[str], dict[str, Any]],
-        action_handler: Callable[[str], dict[str, Any]],
+        action_handler: Callable[[str, dict[str, Any]], dict[str, Any]],
         health_handler: Callable[[], dict[str, Any]],
         auth_handler: Callable[[str, dict[str, Any], str], dict[str, Any]],
         session_handler: Callable[[str], dict[str, Any]],
+        media_resource_handler: Callable[[str], tuple[str, bytes] | None] | None = None,
         port: int = 0,
     ) -> None:
         super().__init__("ui_server")
@@ -47,6 +48,7 @@ class UIServer(ManagedComponent):
         self._health_handler = health_handler
         self._auth_handler = auth_handler
         self._session_handler = session_handler
+        self._media_resource_handler = media_resource_handler
         self._requested_port = port
         self._token = secrets.token_urlsafe(24)
         self._server: _Server | None = None
@@ -148,6 +150,21 @@ class UIServer(ManagedComponent):
                 if path == "/events":
                     self._serve_events()
                     return
+                if path.startswith("/media/art/"):
+                    if not self._authorized() or owner._media_resource_handler is None:
+                        self.send_error(HTTPStatus.UNAUTHORIZED)
+                        return
+                    resource = owner._media_resource_handler(path.removeprefix("/media/art/"))
+                    if resource is None:
+                        self.send_error(HTTPStatus.NOT_FOUND)
+                        return
+                    content_type, body = resource
+                    self.send_response(HTTPStatus.OK)
+                    self._security_headers(content_type, len(body))
+                    self.send_header("Cache-Control", "private, max-age=86400")
+                    self.end_headers()
+                    self.wfile.write(body)
+                    return
                 target = {
                     "/": "index.html",
                     "/index.html": "index.html",
@@ -204,7 +221,7 @@ class UIServer(ManagedComponent):
                     if not isinstance(action, str):
                         self._json({"ok": False, "error": "invalid action"}, HTTPStatus.BAD_REQUEST)
                         return
-                    result = owner._action_handler(action)
+                    result = owner._action_handler(action, payload)
                     self._json(result, HTTPStatus.OK if result.get("ok") else HTTPStatus.BAD_REQUEST)
                     return
                 self.send_error(HTTPStatus.NOT_FOUND)

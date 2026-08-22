@@ -51,6 +51,8 @@ class DesktopHost:
         transition_to_ghost = ThreadEvent()
 
         def destroy_all(*_: object) -> None:
+            if self._stopping.is_set():
+                return
             self._stopping.set()
             for window in tuple(windows.values()):
                 try:

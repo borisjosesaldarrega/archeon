@@ -61,6 +61,7 @@
       <button id="close-menu" class="close-button" aria-label="Cerrar">×</button>
       <div class="profile"><div class="profile-icon">A</div><strong id="profile-name">ARCHEON</strong><span id="profile-email"></span></div>
       <button class="menu-item" data-i18n="menu.voice">🎙 Voz y micrófono</button>
+      <button id="music-open" class="menu-item" data-i18n="menu.music">♫ Reproductor local</button>
       <button class="menu-item" data-i18n="menu.settings">⚙ Configuración</button>
       <button id="logout-button" class="menu-item logout" data-i18n="menu.logout">Cerrar sesión</button>
     </aside>
@@ -84,8 +85,8 @@
 
     <section id="music-panel" class="music-widget">
       <div class="track-copy"><strong id="track-title" data-i18n="music.none">Sin reproducción activa</strong><span id="track-artist"></span></div>
-      <div class="media-controls"><button id="music-stop" aria-label="Detener">■</button><button id="music-play" aria-label="Reproducir">▶</button><button id="music-pause" aria-label="Pausar">Ⅱ</button></div>
-      <audio id="music-audio" preload="none" src="/archeon-audio.mp3"></audio>
+      <div class="media-controls"><button id="music-previous" aria-label="Anterior">‹</button><button id="music-play" aria-label="Reproducir">▶</button><button id="music-pause" aria-label="Pausar">Ⅱ</button><button id="music-next" aria-label="Siguiente">›</button><button id="music-stop" aria-label="Detener">■</button></div>
+      <div class="media-sliders"><input id="music-seek" type="range" min="0" max="1" value="0" aria-label="Posición"><input id="music-volume" type="range" min="0" max="100" value="70" aria-label="Volumen"></div>
     </section>
   </main>
 
