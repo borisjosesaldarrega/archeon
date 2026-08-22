@@ -7,6 +7,7 @@
   let messages = {};
   let session = null;
   let events = null;
+  let settingsCache = null;
 
   const t = (key) => messages[key] || key;
   const authMessage = document.getElementById("auth-message");
@@ -14,12 +15,14 @@
   const headers = () => ({...baseHeaders,"X-Archeon-Session":sessionToken()});
 
   async function loadLocale(locale) {
-    const [response, voiceResponse] = await Promise.all([
-      fetch(`/locales/${locale}.json`),
-      fetch(`/locales/voice-${locale}.json`),
+    const readCatalog = async (path) => { const response=await fetch(path); return response.ok ? response.json() : {}; };
+    const [base, selected, voiceBase, voiceSelected] = await Promise.all([
+      readCatalog("/locales/es.json"), readCatalog(`/locales/${locale}.json`),
+      readCatalog("/locales/voice-es.json"), readCatalog(`/locales/voice-${locale}.json`),
     ]);
-    messages = {...await response.json(), ...await voiceResponse.json()};
+    messages = {...base, ...voiceBase, ...selected, ...voiceSelected};
     document.documentElement.lang = locale;
+    document.documentElement.dir = locale === "ar" ? "rtl" : "ltr";
     document.querySelectorAll("[data-i18n]").forEach((node) => { node.textContent = t(node.dataset.i18n); });
     document.querySelectorAll("[data-i18n-placeholder]").forEach((node) => { node.placeholder = t(node.dataset.i18nPlaceholder); });
     document.querySelectorAll("[data-i18n-aria]").forEach((node) => { node.setAttribute("aria-label", t(node.dataset.i18nAria)); });
@@ -99,7 +102,7 @@
   function setState(state, detailKey) {
     ["idle","listening","transcribing","thinking","executing","speaking","music","paused","error"].forEach((name) => document.body.classList.remove(`state-${name}`));
     document.body.classList.add(`state-${state}`);
-    stateElement.textContent = t(`state.${state}`);
+    stateElement.textContent = state === "idle" ? (settingsCache?.assistant?.wake_name || t("state.idle")) : t(`state.${state}`);
     if (detailKey) detailElement.textContent = t(detailKey);
   }
   const postAction = async (action, payload = {}) => (await fetch("/api/action", {method:"POST",headers:headers(),body:JSON.stringify({action,...payload})})).json();
@@ -137,6 +140,48 @@
       barge_in:document.getElementById("voice-barge").checked,
     });
     if(result.ok)voiceDialog.close();else document.getElementById("voice-model-detail").textContent=result.error||"voice_configuration_error";
+  });
+  const settingsDialog = document.getElementById("settings-dialog");
+  const languageChoices = ["es","en","pt","fr","de","it","zh","ja","ko","ru","ar","hi"];
+  function applySettings(settings) {
+    settingsCache = settings;
+    const theme = settings.appearance?.theme || "dark";
+    const resolved = theme === "system" && matchMedia("(prefers-color-scheme: light)").matches ? "light" : theme;
+    document.body.classList.toggle("theme-light", resolved === "light");
+    document.body.classList.toggle("reduce-motion", Boolean(settings.appearance?.reduced_motion));
+    if (document.body.classList.contains("state-idle")) stateElement.textContent = settings.assistant?.wake_name || "Archeon";
+  }
+  document.getElementById("settings-open").addEventListener("click", async () => {
+    document.getElementById("sidebar").classList.remove("open");
+    const result = await postAction("settings.get");
+    if (!result.ok) return;
+    applySettings(result.settings);
+    const interfaceSelect = document.getElementById("settings-interface-language");
+    const conversationSelect = document.getElementById("settings-conversation-language");
+    fillSelect(interfaceSelect, languageChoices.map((id)=>({id,name:id.toUpperCase()})), result.settings.language.interface, false);
+    fillSelect(conversationSelect, [{id:"auto",name:t("settings.auto")},...languageChoices.map((id)=>({id,name:id.toUpperCase()}))], result.settings.language.conversation, false);
+    document.getElementById("settings-theme").value=result.settings.appearance.theme;
+    document.getElementById("settings-wake-name").value=result.settings.assistant.wake_name;
+    document.getElementById("settings-context-language").checked=result.settings.assistant.context_language_enabled;
+    document.getElementById("settings-startup-sound").checked=result.settings.startup.startup_sound;
+    document.getElementById("settings-cloud").checked=result.settings.privacy.cloud_processing_allowed;
+    document.getElementById("settings-message").textContent="";
+    settingsDialog.showModal();
+  });
+  document.getElementById("settings-close").addEventListener("click",()=>settingsDialog.close());
+  document.getElementById("settings-save").addEventListener("click",async()=>{
+    const interfaceLanguage=document.getElementById("settings-interface-language").value;
+    const result=await postAction("settings.update",{changes:{
+      language:{interface:interfaceLanguage,conversation:document.getElementById("settings-conversation-language").value},
+      appearance:{theme:document.getElementById("settings-theme").value},
+      assistant:{wake_name:document.getElementById("settings-wake-name").value,context_language_enabled:document.getElementById("settings-context-language").checked},
+      startup:{startup_sound:document.getElementById("settings-startup-sound").checked},
+      privacy:{cloud_processing_allowed:document.getElementById("settings-cloud").checked},
+    }});
+    const message=document.getElementById("settings-message");
+    if(!result.ok){message.textContent=result.error||"settings_error";return;}
+    applySettings(result.settings); await loadLocale(interfaceLanguage); document.getElementById("language-select").value=interfaceLanguage;
+    message.textContent=t("settings.saved"); setTimeout(()=>settingsDialog.close(),450);
   });
   document.getElementById("ghost-button").addEventListener("click", () => postAction("window.ghost"));
   document.getElementById("voice-button").addEventListener("click", async () => {
@@ -191,5 +236,24 @@
   function updateClock(){const now=new Date();document.getElementById("clock-time").textContent=now.toLocaleTimeString(document.documentElement.lang,{hour:"2-digit",minute:"2-digit"});document.getElementById("clock-date").textContent=now.toLocaleDateString(document.documentElement.lang,{weekday:"long",day:"numeric",month:"long"});setTimeout(updateClock,60000-(Date.now()%60000));}
   document.getElementById("language-select").addEventListener("change",(event)=>loadLocale(event.target.value));
 
-  (async()=>{const locale=localStorage.getItem("archeon_locale")||"es";document.getElementById("language-select").value=locale;await loadLocale(locale);updateClock();const token=sessionToken();if(token){try{const response=await fetch("/api/session",{headers:headers()});const value=await response.json();if(value.ok)enterApplication(value.session);else sessionStorage.removeItem("archeon_session");}catch(_){sessionStorage.removeItem("archeon_session");}}})();
+  (async()=>{
+    const locale=localStorage.getItem("archeon_locale")||"es";
+    document.getElementById("language-select").value=locale;
+    await loadLocale(locale); updateClock();
+    if(!sessionToken()) return;
+    try {
+      const response=await fetch("/api/session",{headers:headers()});
+      const value=await response.json();
+      if(!value.ok){sessionStorage.removeItem("archeon_session");return;}
+      enterApplication(value.session);
+      const current=await postAction("settings.get");
+      if(current.ok){
+        applySettings(current.settings);
+        if(current.settings.language.interface!==locale){
+          document.getElementById("language-select").value=current.settings.language.interface;
+          await loadLocale(current.settings.language.interface);
+        }
+      }
+    } catch(_){sessionStorage.removeItem("archeon_session");}
+  })();
 })();

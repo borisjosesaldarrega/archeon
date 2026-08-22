@@ -45,7 +45,12 @@ class ArcheonApplication:
         )
         self.plugins = PluginManager(self.events, self.data_dir / "plugins")
         self.system = DeviceSystemEngine(self.tools)
-        self.orchestrator = Orchestrator(self.events, self.tools)
+        self.orchestrator = Orchestrator(
+            self.events,
+            self.tools,
+            conversation_language_provider=lambda: self.configuration.config.language.conversation,
+            interface_language_provider=lambda: self.configuration.config.language.interface,
+        )
         models_root = Path(__file__).resolve().parents[2] / "models"
         self.voice = VoicePipeline(
             self.events,
@@ -128,6 +133,22 @@ class ArcheonApplication:
 
     def handle_action(self, action: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         payload = payload or {}
+        if action == "settings.get":
+            return {"ok": True, "settings": self.configuration.public_settings()}
+        if action == "settings.update":
+            changes = payload.get("changes")
+            if not isinstance(changes, dict):
+                return {"ok": False, "error": "invalid_settings_changes"}
+            try:
+                settings = self.configuration.update_settings(changes)
+            except (TypeError, ValueError) as error:
+                return {"ok": False, "error": str(error)}
+            self.events.publish(
+                "settings.changed",
+                {"sections": sorted(changes)},
+                source="application",
+            )
+            return {"ok": True, "settings": settings}
         if action == "window.ghost":
             self.configuration.config.ghost.enabled = True
             self.configuration.save()

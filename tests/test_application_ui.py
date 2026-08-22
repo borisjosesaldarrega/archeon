@@ -69,6 +69,20 @@ class ApplicationUITests(unittest.TestCase):
         self.assertEqual(subscription.get(timeout=0.2).type, "ui.window.ghost")
         subscription.close()
 
+    def test_settings_actions_are_real_and_emit_changes(self) -> None:
+        subscription = self.application.events.subscribe("settings.changed")
+        with self.request("/api/action", body={"action": "settings.get"}) as response:
+            current = json.load(response)
+        self.assertFalse(current["settings"]["startup"]["startup_sound"])
+        with self.request(
+            "/api/action",
+            body={"action": "settings.update", "changes": {"assistant": {"wake_name": "Nova"}}},
+        ) as response:
+            updated = json.load(response)
+        self.assertEqual(updated["settings"]["assistant"]["wake_name"], "Nova")
+        self.assertEqual(subscription.get(timeout=0.2).payload["sections"], ["assistant"])
+        subscription.close()
+
     def test_ghost_transition_resumes_session_once_in_memory(self) -> None:
         with self.request("/api/action", body={"action": "window.ghost"}) as response:
             self.assertTrue(json.load(response)["ok"])
@@ -87,6 +101,9 @@ class ApplicationUITests(unittest.TestCase):
         self.assertNotIn("<audio", html)
         self.assertTrue((UI_ROOT / "locales" / "es.json").is_file())
         self.assertTrue((UI_ROOT / "locales" / "en.json").is_file())
+        for locale in ("es", "en", "pt", "fr", "de", "it", "zh", "ja", "ko", "ru", "ar", "hi"):
+            catalog = json.loads((UI_ROOT / "locales" / f"{locale}.json").read_text(encoding="utf-8"))
+            self.assertIn("settings.title", catalog)
 
     def test_ui_assets_cannot_mix_versions_from_browser_cache(self) -> None:
         with self.request("/app.js") as response:

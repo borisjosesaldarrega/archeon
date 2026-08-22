@@ -45,7 +45,11 @@
         <button class="primary" type="submit" data-i18n="register.create">Crear identidad</button>
       </form>
       <p id="auth-message" class="auth-message" role="status"></p>
-      <select id="language-select" class="language-select" aria-label="Idioma"><option value="es">ES</option><option value="en">EN</option></select>
+      <select id="language-select" class="language-select" aria-label="Idioma">
+        <option value="es">ES</option><option value="en">EN</option><option value="pt">PT</option><option value="fr">FR</option>
+        <option value="de">DE</option><option value="it">IT</option><option value="zh">中文</option><option value="ja">日本語</option>
+        <option value="ko">한국어</option><option value="ru">РУ</option><option value="ar">العربية</option><option value="hi">हिन्दी</option>
+      </select>
     </section>
   </main>
 
@@ -62,7 +66,7 @@
       <div class="profile"><div class="profile-icon">A</div><strong id="profile-name">ARCHEON</strong><span id="profile-email"></span></div>
       <button id="voice-settings-open" class="menu-item" data-i18n="menu.voice">🎙 Voz y micrófono</button>
       <button id="music-open" class="menu-item" data-i18n="menu.music">♫ Reproductor local</button>
-      <button class="menu-item" data-i18n="menu.settings">⚙ Configuración</button>
+      <button id="settings-open" class="menu-item" data-i18n="menu.settings">⚙ Configuración</button>
       <button id="logout-button" class="menu-item logout" data-i18n="menu.logout">Cerrar sesión</button>
     </aside>
 
@@ -95,6 +99,24 @@
         <label class="check-row"><input id="voice-barge" type="checkbox"><span data-i18n="voice.settings.barge">Permitir interrupción mientras habla</span></label>
         <p id="voice-model-detail" class="provider-note"></p>
         <button id="voice-settings-save" class="primary" type="button" data-i18n="voice.settings.save">Guardar configuración</button>
+      </form>
+    </dialog>
+
+    <dialog id="settings-dialog" class="settings-dialog settings-main">
+      <form method="dialog">
+        <header><div><span class="eyebrow" data-i18n="settings.eyebrow">PREFERENCIAS</span><h2 data-i18n="settings.title">Configuración</h2></div><button id="settings-close" type="button" aria-label="Cerrar">×</button></header>
+        <div class="settings-grid">
+          <label><span data-i18n="settings.interface_language">Idioma de la interfaz</span><select id="settings-interface-language"></select></label>
+          <label><span data-i18n="settings.conversation_language">Idioma de conversación</span><select id="settings-conversation-language"></select></label>
+          <label><span data-i18n="settings.theme">Tema</span><select id="settings-theme"><option value="system">Sistema</option><option value="dark">Oscuro</option><option value="light">Claro</option></select></label>
+          <label><span data-i18n="settings.wake_name">Nombre de activación</span><input id="settings-wake-name" maxlength="24"></label>
+        </div>
+        <label class="check-row"><input id="settings-context-language" type="checkbox"><span data-i18n="settings.context_language">Responder según el idioma del contexto</span></label>
+        <label class="check-row"><input id="settings-startup-sound" type="checkbox"><span data-i18n="settings.startup_sound">Sonido al iniciar</span></label>
+        <label class="check-row"><input id="settings-cloud" type="checkbox"><span data-i18n="settings.cloud">Permitir procesamiento cloud</span></label>
+        <p class="provider-note" data-i18n="settings.cloud_note">Las capturas permanecen bloqueadas para cloud mediante un permiso independiente.</p>
+        <p id="settings-message" class="auth-message" role="status"></p>
+        <button id="settings-save" class="primary" type="button" data-i18n="settings.save">Guardar cambios</button>
       </form>
     </dialog>
 

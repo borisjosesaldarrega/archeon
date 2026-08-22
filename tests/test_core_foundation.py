@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 from archeon.core.config import ConfigurationManager
+from archeon.core.language import LanguageContextEngine
 from archeon.core.events import EventBus
 from archeon.core.lifecycle import ComponentState, LifecycleManager, ManagedComponent
 from archeon.core.secure_logging import configure_logging
@@ -63,6 +64,36 @@ class CoreFoundationTests(unittest.TestCase):
             self.assertEqual(loaded.config.ghost.size, 256)
             self.assertEqual(loaded.config.performance.profile, "eco")
             loaded.stop()
+
+    def test_settings_migrate_and_keep_cloud_private_by_default(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            manager = ConfigurationManager(Path(directory) / "config.json")
+            manager.start()
+            updated = manager.update_settings({
+                "language": {"interface": "fr", "conversation": "auto"},
+                "assistant": {"wake_name": "Nova"},
+            })
+            self.assertEqual(updated["schema_version"], 2)
+            self.assertEqual(manager.config.locale, "fr")
+            self.assertEqual(manager.config.assistant.wake_name, "Nova")
+            self.assertFalse(manager.config.privacy.cloud_processing_allowed)
+            self.assertFalse(manager.config.privacy.cloud_screenshots_allowed)
+            self.assertFalse(manager.config.startup.startup_sound)
+            manager.stop()
+
+    def test_settings_reject_unknown_fields(self) -> None:
+        manager = ConfigurationManager(Path("unused.json"))
+        with self.assertRaisesRegex(ValueError, "unknown_setting"):
+            manager.update_settings({"privacy": {"send_everything": True}})
+
+    def test_language_context_is_independent_from_interface_language(self) -> None:
+        engine = LanguageContextEngine()
+        self.assertEqual(engine.decide("Please open the settings", fallback="es").response_language, "en")
+        self.assertEqual(engine.decide("Por favor abre la configuración", fallback="en").response_language, "es")
+        explicit = engine.decide("Please reply in Spanish", fallback="en")
+        self.assertEqual(explicit.response_language, "es")
+        self.assertEqual(explicit.source, "explicit_request")
+        self.assertEqual(engine.decide("設定を開いてください", fallback="es").response_language, "ja")
 
     def test_logging_redacts_secret_values(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

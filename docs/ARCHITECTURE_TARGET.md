@@ -50,6 +50,7 @@ ToolManifest
   permissions[], risk_level
   timeout, cancellable
   resource_class
+  supports_rollback, checkpoint_policy
   execute(context, input) -> result
   verify(context, result) -> verification
 ```
@@ -67,6 +68,7 @@ Modules expose `start`, `suspend`, `resume`, `stop` and health/resource snapshot
 
 - **Orchestrator:** resolves intent, plans tool calls, requests permissions, executes, verifies and reports.
 - **PermissionEngine:** denied / ask / session / persistent grants, plus mandatory confirmation for destructive/admin actions.
+- **PermissionEngine:** granular screen, mouse, keyboard, application, browser, filesystem, terminal, camera, microphone and device grants; never a single implicit "full control" grant.
 - **AudioManager:** WASAPI shared-mode devices and notifications, local VAD/wake word gate, lazy STT/TTS providers, barge-in and deterministic resource cleanup.
 - **MusicEngine:** internal player separated from Windows Global System Media Transport Controls; decoder subprocess only during playback; bounded buffers and cached artwork.
 - **GhostModeManager:** consumes core events; manages an independent window, DPI/monitor recovery, always-on-top/click-through escape path and adaptive rendering.
@@ -74,6 +76,7 @@ Modules expose `start`, `suspend`, `resume`, `stop` and health/resource snapshot
 - **DesktopControl:** UI Automation/Accessibility first, native APIs second, vision third, coordinates last.
 - **BrowserEngine:** structured DOM/accessibility provider; vision fallback only when needed.
 - **ModelRouter:** local/rules/tools before remote model; provider adapters loaded only for selected requests.
+- **Model providers:** the Core imports only a provider contract. Local, llama.cpp, ONNX, Ollama and future ARCHEON models are first-class; OpenAI/Gemini/Anthropic adapters remain optional and obey `cloud_allowed`.
 - **MemoryEngine:** short-term in memory; user-consented long-term/semantic/device stores with view/edit/delete/export.
 - **Device/Mobile gateway:** temporary pairing token, revocable device credentials, LAN-first encrypted channel and authenticated relay fallback.
 
@@ -105,4 +108,3 @@ Modules expose `start`, `suspend`, `resume`, `stop` and health/resource snapshot
 ## Verification gates
 
 Every feature needs unit tests, integration tests, failure/cancellation tests, permission tests and resource measurements. A UI control may ship only when its backend capability is real, or it must be labeled `EXPERIMENTAL/PARTIAL/BLOCKED`.
-

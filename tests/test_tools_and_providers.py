@@ -86,6 +86,16 @@ class ToolAndProviderTests(unittest.TestCase):
         self.assertGreater(response.data["process"]["working_set_bytes"], 0)
         system.stop()
 
+    def test_orchestrator_responds_in_detected_language(self) -> None:
+        system = DeviceSystemEngine(self.tools)
+        system.start()
+        self.tools.start()
+        orchestrator = Orchestrator(self.bus, self.tools)
+        response = orchestrator.handle_text("Please show the system status")
+        self.assertTrue(response.ok)
+        self.assertEqual(response.message, "System status retrieved.")
+        system.stop()
+
     def test_database_provider_stays_unloaded(self) -> None:
         database = DatabaseManager()
         database.start()

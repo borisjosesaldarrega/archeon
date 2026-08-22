@@ -20,6 +20,8 @@ class ToolManifest:
     risk: RiskLevel = RiskLevel.READ_ONLY
     timeout_seconds: float = 30.0
     resource_class: str = "light"
+    supports_rollback: bool = False
+    checkpoint_policy: str = "none"
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,4 +146,3 @@ class ToolEngine(ManagedComponent):
             if callable(close := getattr(instance, "close", None)):
                 close()
         self._permissions.clear_session()
-

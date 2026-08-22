@@ -11,7 +11,7 @@ Statuses: `DONE`, `IN PROGRESS`, `BLOCKED`, `PLANNED`.
 - **DONE:** classify recovered modules and define target architecture/performance budgets.
 - **DONE:** exclude secrets/user data/build artifacts and create a Git checkpoint.
 - **BLOCKED:** exact v9.8 payload extraction; needs installed files/build output or isolated Windows VM/Sandbox run.
-- **BLOCKED:** live Supabase schema/RLS/storage audit; needs target-project authentication.
+- **DONE:** live Supabase schema/RLS/storage audit and catalog inventory (2026-08-21); critical legacy exposure is documented in `SUPABASE_AUDIT_2026-08-21.md`.
 - **PLANNED:** rotate all Firebase/Google/OpenRouter credentials before any legacy runtime test.
 
 ## Phase 1 — Lightweight core foundation
@@ -58,6 +58,11 @@ Statuses: `DONE`, `IN PROGRESS`, `BLOCKED`, `PLANNED`.
 - UI Automation/Accessibility before vision or coordinates.
 - Structured browser provider with DOM/accessibility and vision fallback.
 - Checkpoints/diffs/rollback for coding and file modifications.
+- DesktopControlEngine: on-demand ScreenCapture, WindowManager, AccessibilityProvider, ElementLocator, controllers, ActionVerifier and SafetyController.
+- BrowserEngine: session/tab/DOM/accessibility/form/download/upload providers with vision only as fallback.
+- Observe, Guide, Assist and authorized-control sessions with an always-visible emergency stop.
+- DeviceControlEngine: authenticated pairing, per-device grants, command routing and remote verification without exposing RDP or terminal ports.
+- Structured privacy-minimized action audit and rollback declarations on every reversible tool.
 
 ## Phase 7 — Memory, automations and model routing
 
@@ -65,6 +70,10 @@ Statuses: `DONE`, `IN PROGRESS`, `BLOCKED`, `PLANNED`.
 - Structured event-based automations; no busy polling.
 - ModelProvider/ModelRouter with rules/local tools first and optional local/cloud models.
 - Retrieval/evaluation datasets before any fine-tuning work.
+- ARCHEON Local AI: provider-neutral inference, hardware profiles, quantized GGUF/ONNX backends, local embeddings/RAG and explicit model downloads.
+- Model Manager displays size, RAM/VRAM, languages, capabilities, licence and commercial redistribution status before installation.
+- Tool-use, multilingual, code, safety and computer-use datasets plus repeatable evals; memory remains separate from training.
+- Offline mode keeps installed voice, tools, media, memory and local models available; cloud is an optional, visible, user-authorized fallback.
 
 ## Phase 8 — Plugins and production
 
@@ -75,4 +84,3 @@ Statuses: `DONE`, `IN PROGRESS`, `BLOCKED`, `PLANNED`.
 ## Definition of done
 
 A feature is complete only when implementation, tests, error handling, permission behavior, documentation, resource measurements and regression checks all pass. Simulated UI remains labeled `EXPERIMENTAL` and cannot satisfy acceptance.
-
