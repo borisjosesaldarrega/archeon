@@ -26,6 +26,28 @@ def family(root: psutil.Process) -> list[psutil.Process]:
         return []
 
 
+def gpu_utilization(processes: list[psutil.Process]) -> tuple[float | None, str]:
+    """Take one bounded Windows GPU Engine sample for the ARCHEON process tree."""
+    if sys.platform != "win32" or not processes:
+        return None, "Windows GPU Engine counters are unavailable on this platform."
+    pids = ",".join(str(process.pid) for process in processes)
+    script = (
+        f"$targetPids=@({pids});"
+        "$total=0.0;"
+        "(Get-Counter '\\GPU Engine(*)\\Utilization Percentage' -MaxSamples 1 -ErrorAction Stop).CounterSamples|"
+        "ForEach-Object{if($_.InstanceName -match 'pid_(\\d+)_' -and $targetPids -contains [int]$Matches[1]){$total+=$_.CookedValue}};"
+        "$total|ConvertTo-Json -Compress"
+    )
+    try:
+        result = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
+            capture_output=True, text=True, timeout=8, check=True,
+        )
+        return round(float(json.loads(result.stdout)), 3), "One Windows GPU Engine sample; summed across ARCHEON engines."
+    except (OSError, ValueError, subprocess.SubprocessError, json.JSONDecodeError):
+        return None, "Windows GPU Engine counters could not be sampled on this host."
+
+
 def measure(name: str, extra: list[str], *, warmup: float, sample: float) -> dict[str, object]:
     runtime = ROOT / f".runtime-benchmark-{name}"
     command = [
@@ -93,8 +115,33 @@ def measure(name: str, extra: list[str], *, warmup: float, sample: float) -> dic
         private_samples.append(private)
         samples.append(cpu)
 
-    process_names = sorted(process.name() for process in family(root))
+    final_family = family(root)
+    gpu_percent, gpu_note = gpu_utilization(final_family)
+    process_names = sorted(process.name() for process in final_family)
+    process_details = []
+    for process in final_family:
+        try:
+            memory = process.memory_info()
+            command_line = " ".join(process.cmdline())
+            process_details.append({
+                "name": process.name(),
+                "role": next((part.split("=", 1)[1] for part in process.cmdline() if part.startswith("--type=")), "main"),
+                "private_mb": round(getattr(memory, "private", memory.rss) / 1_048_576, 3),
+                "rss_mb": round(memory.rss / 1_048_576, 3),
+                "webview": "msedgewebview2" in command_line.casefold(),
+            })
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
     stdout_tail, stderr = child.communicate(timeout=8)
+    benchmark_events = []
+    for line in stdout_tail.splitlines():
+        try:
+            value = json.loads(line)
+            if isinstance(value, dict) and str(value.get("event", "")).startswith("archeon.benchmark."):
+                benchmark_events.append(value)
+        except json.JSONDecodeError:
+            pass
+    launcher_event = next((item for item in benchmark_events if item.get("event") == "archeon.benchmark.launcher"), None)
     log_path = runtime / "logs" / "archeon.log"
     log_text = log_path.read_text(encoding="utf-8") if log_path.exists() else ""
     return {
@@ -109,12 +156,15 @@ def measure(name: str, extra: list[str], *, warmup: float, sample: float) -> dic
         "cpu_idle_percent_peak": round(max(samples), 3),
         "process_count": len(process_names),
         "process_names": process_names,
+        "process_details": process_details,
+        "launcher_scan_ms": launcher_event.get("scan_ms") if launcher_event else None,
+        "launcher_items": launcher_event.get("items") if launcher_event else None,
         "music_started_confirmed": (
             "music.started" in log_text
             or ('"event":"archeon.benchmark.music","ok":true' in stdout_tail)
         ) if "music" in name else None,
-        "gpu_percent": None,
-        "gpu_note": "Per-process GPU counters are unavailable through psutil on this host.",
+        "gpu_percent": gpu_percent,
+        "gpu_note": gpu_note,
         "exit_code": child.returncode,
         "stderr": stderr.strip(),
         "stdout_tail": stdout_tail.strip(),
@@ -125,14 +175,22 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--warmup", type=float, default=3.0)
     parser.add_argument("--sample", type=float, default=3.0)
-    parser.add_argument("--scenarios", nargs="+", choices=("headless", "main", "ghost", "ghost_music", "music"))
+    parser.add_argument("--scenarios", nargs="+", choices=(
+        "headless", "main", "full_ui", "ghost", "ghost_radial", "ghost_music",
+        "music", "launcher", "background_image", "background_video",
+    ))
     args = parser.parse_args()
     scenarios = {
         "headless": ["--headless"],
         "main": [],
+        "full_ui": ["--benchmark-guest"],
         "ghost": ["--ghost"],
+        "ghost_radial": ["--ghost", "--benchmark-radial"],
         "ghost_music": ["--ghost", "--benchmark-music"],
-        "music": ["--benchmark-music"],
+        "music": ["--benchmark-guest", "--benchmark-music"],
+        "launcher": ["--headless", "--benchmark-launcher"],
+        "background_image": ["--benchmark-guest", "--benchmark-background", "image"],
+        "background_video": ["--benchmark-guest", "--benchmark-background", "video"],
     }
     result = {
         "timestamp": datetime.now(UTC).isoformat(),

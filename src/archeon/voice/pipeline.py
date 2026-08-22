@@ -85,6 +85,7 @@ class VoicePipeline(ManagedComponent):
             "stt": self._stt.name,
             "tts": self._tts.name,
             "model_installed": self._stt.available,
+            "model_loaded": bool(getattr(self._stt, "loaded", False)),
             "capture": "WASAPI shared",
             "profile": profile.name,
             "model_id": model.id,

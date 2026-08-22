@@ -23,6 +23,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--port", type=int, default=0)
     parser.add_argument("--console-log", action="store_true")
     parser.add_argument("--benchmark-music", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--benchmark-guest", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--benchmark-launcher", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--benchmark-radial", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--benchmark-background", choices=("image", "video"), help=argparse.SUPPRESS)
     return parser
 
 
@@ -34,6 +38,22 @@ def main(argv: list[str] | None = None) -> int:
         console_log=args.console_log,
     )
     application.start()
+    if args.benchmark_background:
+        visual = (
+            Path(__file__).resolve().parent / "ui" / "logo_asitente.png"
+            if args.benchmark_background == "image"
+            else Path(__file__).resolve().parents[2] / "assets" / "ARCHEON.mp4"
+        )
+        application.configuration.update_settings({"appearance": {
+            "background_type": args.benchmark_background,
+            "background_path": str(visual),
+        }})
+    launcher_ms = None
+    launcher_count = None
+    if args.benchmark_launcher:
+        launcher_started = time.perf_counter()
+        launcher_count = len(application.launcher.refresh(force=True))
+        launcher_ms = (time.perf_counter() - launcher_started) * 1000
     print(
         json.dumps(
             {
@@ -46,6 +66,11 @@ def main(argv: list[str] | None = None) -> int:
         ),
         flush=True,
     )
+    if launcher_ms is not None:
+        print(json.dumps({
+            "event": "archeon.benchmark.launcher", "items": launcher_count,
+            "scan_ms": round(launcher_ms, 3),
+        }, separators=(",", ":")), flush=True)
     try:
         if args.headless:
             stopped = Event()
@@ -79,6 +104,8 @@ def main(argv: list[str] | None = None) -> int:
                 initial_mode="ghost" if args.ghost else "main",
                 auto_exit_seconds=args.auto_exit,
                 benchmark_music=args.benchmark_music,
+                benchmark_guest=args.benchmark_guest,
+                benchmark_radial=args.benchmark_radial,
             )
     except KeyboardInterrupt:
         pass

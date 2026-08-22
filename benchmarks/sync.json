@@ -1,0 +1,10 @@
+{
+  "timestamp": "2026-08-22T04:56:01.608328+00:00",
+  "offline_queue_latency_ms": 533.856,
+  "offline_queued": true,
+  "offline_pending_bytes": 351,
+  "online_endpoint_latency_ms": 849.781,
+  "online_endpoint_status": 401,
+  "online_rls_denied_without_user_jwt": true,
+  "authenticated_roundtrip": "pending_final_controlled_email_validation"
+}

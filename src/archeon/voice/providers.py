@@ -13,6 +13,8 @@ class SpeechToTextProvider(Protocol):
 
     @property
     def available(self) -> bool: ...
+    @property
+    def loaded(self) -> bool: ...
     def configure(self, model_path: Path) -> None: ...
     def transcribe(self, pcm: bytes, sample_rate: int) -> str: ...
     def unload(self) -> None: ...
@@ -52,6 +54,11 @@ class VoskSpeechToText:
     @property
     def available(self) -> bool:
         return self._model_path.is_dir()
+
+    @property
+    def loaded(self) -> bool:
+        with self._lock:
+            return self._model is not None
 
     def transcribe(self, pcm: bytes, sample_rate: int) -> str:
         if not self.available:

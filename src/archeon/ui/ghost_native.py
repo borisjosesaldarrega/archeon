@@ -45,7 +45,7 @@ class NativeGhostHost:
             locale_path = locale_path.with_name("ghost-es.json")
         self._text = json.loads(locale_path.read_text(encoding="utf-8"))
 
-    def run(self, *, auto_exit_seconds: float | None = None) -> str:
+    def run(self, *, auto_exit_seconds: float | None = None, open_radial: bool = False) -> str:
         import tkinter as tk
 
         root = tk.Tk(className="ARCHEONGhost")
@@ -323,6 +323,8 @@ class NativeGhostHost:
 
         bridge_thread = Thread(target=bridge, name="archeon-ghost-bridge", daemon=False)
         bridge_thread.start()
+        if open_radial:
+            root.after(350, show_radial)
         if auto_exit_seconds is not None:
             root.after(max(1, int(auto_exit_seconds * 1000)), root.quit)
         try:

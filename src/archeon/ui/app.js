@@ -72,13 +72,13 @@
 
   document.querySelectorAll("[data-auth-view]").forEach((button) => button.addEventListener("click", () => showAuthView(button.dataset.authView)));
   document.getElementById("guest-button").addEventListener("click", async () => {
-    try { const value = await auth("guest"); sessionStorage.setItem("archeon_session", value.session_token); enterApplication(value.session); } catch (error) { authError(error); }
+    try { const value = await auth("guest"); sessionStorage.setItem("archeon_session", value.session_token); enterApplication(value.session); await loadCurrentSettings(document.documentElement.lang||"es"); } catch (error) { authError(error); }
   });
   document.getElementById("auth-login").addEventListener("submit", async (event) => {
     event.preventDefault();
     try {
       const value = await auth("login", {email:document.getElementById("login-email").value,password:document.getElementById("login-password").value});
-      sessionStorage.setItem("archeon_session", value.session_token); enterApplication(value.session);
+      sessionStorage.setItem("archeon_session", value.session_token); enterApplication(value.session); await loadCurrentSettings(document.documentElement.lang||"es");
     } catch (error) { authError(error); }
   });
   document.getElementById("auth-register").addEventListener("submit", async (event) => {
@@ -88,7 +88,7 @@
       if (value.session.pending_confirmation) {
         showAuthView("login"); authMessage.textContent=t("auth.confirmation_sent"); return;
       }
-      sessionStorage.setItem("archeon_session", value.session_token); enterApplication(value.session);
+      sessionStorage.setItem("archeon_session", value.session_token); enterApplication(value.session); await loadCurrentSettings(document.documentElement.lang||"es");
     } catch (error) { authError(error); }
   });
   document.getElementById("auth-forgot").addEventListener("submit", async (event) => {
@@ -331,6 +331,11 @@
 
   function updateClock(){const now=new Date(),clock=settingsCache?.clock||{};document.getElementById("clock-time").textContent=now.toLocaleTimeString(document.documentElement.lang,{hour:"2-digit",minute:"2-digit",second:clock.show_seconds?"2-digit":undefined,hour12:clock.use_24_hour?false:undefined});document.getElementById("clock-date").textContent=now.toLocaleDateString(document.documentElement.lang,{weekday:"long",day:"numeric",month:"long"});const unit=clock.show_seconds?1000:60000;setTimeout(updateClock,unit-(Date.now()%unit));}
   document.getElementById("language-select").addEventListener("change",(event)=>loadLocale(event.target.value));
+  document.addEventListener("visibilitychange",()=>{
+    const video=document.getElementById("background-video");
+    if(document.hidden)video.pause();
+    else if(!video.hidden&&settingsCache?.appearance?.background_type==="video")video.play().catch(()=>{});
+  });
 
   async function loadCurrentSettings(locale) {
     let current=await postAction("settings.get");

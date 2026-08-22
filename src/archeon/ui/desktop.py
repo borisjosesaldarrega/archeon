@@ -44,6 +44,8 @@ class DesktopHost:
         initial_mode: str = "main",
         auto_exit_seconds: float | None = None,
         benchmark_music: bool = False,
+        benchmark_guest: bool = False,
+        benchmark_radial: bool = False,
     ) -> None:
         if initial_mode == "ghost":
             from archeon.ui.ghost_native import NativeGhostHost
@@ -57,7 +59,8 @@ class DesktopHost:
                 locale=self._config.locale,
                 display_name=self._config.assistant.wake_name,
             ).run(
-                auto_exit_seconds=auto_exit_seconds
+                auto_exit_seconds=auto_exit_seconds,
+                open_radial=benchmark_radial,
             )
             if outcome == "main":
                 self.run(initial_mode="main", auto_exit_seconds=auto_exit_seconds)
@@ -134,10 +137,14 @@ class DesktopHost:
                 timer.start()
 
         initial_window = make_main()
-        if benchmark_music and initial_mode == "main":
-            initial_window.events.loaded += lambda: initial_window.evaluate_js(
-                "document.getElementById('music-play').click()"
-            )
+        if (benchmark_music or benchmark_guest) and initial_mode == "main":
+            def benchmark_setup() -> None:
+                script = "document.getElementById('guest-button').click();"
+                if benchmark_music:
+                    script += "setTimeout(()=>document.getElementById('music-play').click(),500);"
+                initial_window.evaluate_js(script)
+
+            initial_window.events.loaded += benchmark_setup
         try:
             webview.start(startup, gui="edgechromium", debug=False, private_mode=False)
         finally:

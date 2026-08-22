@@ -1,0 +1,15 @@
+{
+  "timestamp": "2026-08-22T04:49:36.061467+00:00",
+  "accepted": true,
+  "event": "voice.cycle.error",
+  "event_payload": {
+    "error": "no_speech_detected"
+  },
+  "elapsed_seconds": 8.521,
+  "cpu_percent_avg": 2.088,
+  "cpu_percent_peak": 57.3,
+  "ram_mb_avg": 41.871,
+  "ram_mb_peak": 41.902,
+  "audio_backend_loaded_after": false,
+  "voice_model_loaded_after": false
+}
