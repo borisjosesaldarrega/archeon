@@ -11,7 +11,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from queue import Empty
 from threading import Event as ThreadEvent
-from threading import Thread
+from threading import RLock, Thread
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -54,6 +54,8 @@ class UIServer(ManagedComponent):
         self._server: _Server | None = None
         self._thread: Thread | None = None
         self._stopping = ThreadEvent()
+        self._continuation_session: str | None = None
+        self._continuation_lock = RLock()
 
     @property
     def token(self) -> str:
@@ -129,9 +131,17 @@ class UIServer(ManagedComponent):
             def do_GET(self) -> None:  # noqa: N802 - stdlib handler contract
                 path = urlparse(self.path).path
                 if path == "/runtime-config.js":
-                    body = f"window.ARCHEON_RUNTIME={{token:{json.dumps(owner.token)}}};".encode()
+                    with owner._continuation_lock:
+                        continuation = owner._continuation_session
+                        owner._continuation_session = None
+                    body = (
+                        "window.ARCHEON_RUNTIME="
+                        + json.dumps({"token": owner.token, "resumeSession": continuation})
+                        + ";"
+                    ).encode()
                     self.send_response(HTTPStatus.OK)
                     self._security_headers("application/javascript; charset=utf-8", len(body))
+                    self.send_header("Cache-Control", "no-store")
                     self.end_headers()
                     self.wfile.write(body)
                     return
@@ -222,6 +232,9 @@ class UIServer(ManagedComponent):
                         self._json({"ok": False, "error": "invalid action"}, HTTPStatus.BAD_REQUEST)
                         return
                     result = owner._action_handler(action, payload)
+                    if result.get("ok") and action == "window.ghost":
+                        with owner._continuation_lock:
+                            owner._continuation_session = self.headers.get("X-Archeon-Session", "")
                     self._json(result, HTTPStatus.OK if result.get("ok") else HTTPStatus.BAD_REQUEST)
                     return
                 self.send_error(HTTPStatus.NOT_FOUND)

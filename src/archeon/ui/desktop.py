@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from queue import Empty
+from collections.abc import Callable
 from threading import Event as ThreadEvent
 from threading import Thread, Timer
 from typing import Any
@@ -16,11 +17,24 @@ class DesktopUnavailable(RuntimeError):
 
 
 class DesktopHost:
-    def __init__(self, events: EventBus, *, base_url: str, token: str, config: AppConfig) -> None:
+    def __init__(
+        self,
+        events: EventBus,
+        *,
+        base_url: str,
+        token: str,
+        config: AppConfig,
+        action_handler: Callable[[str, dict[str, Any]], dict[str, Any]],
+        media_status_handler: Callable[[], dict[str, Any]],
+        artwork_handler: Callable[[str], tuple[str, bytes] | None],
+    ) -> None:
         self._events = events
         self._base_url = base_url
         self._token = token
         self._config = config
+        self._action_handler = action_handler
+        self._media_status_handler = media_status_handler
+        self._artwork_handler = artwork_handler
         self._stopping = ThreadEvent()
         self._bridge: Thread | None = None
 
@@ -34,7 +48,14 @@ class DesktopHost:
         if initial_mode == "ghost":
             from archeon.ui.ghost_native import NativeGhostHost
 
-            outcome = NativeGhostHost(self._events, self._config.ghost).run(
+            outcome = NativeGhostHost(
+                self._events,
+                self._config.ghost,
+                action_handler=self._action_handler,
+                media_status_handler=self._media_status_handler,
+                artwork_handler=self._artwork_handler,
+                locale=self._config.locale,
+            ).run(
                 auto_exit_seconds=auto_exit_seconds
             )
             if outcome == "main":

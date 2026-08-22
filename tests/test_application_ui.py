@@ -69,6 +69,16 @@ class ApplicationUITests(unittest.TestCase):
         self.assertEqual(subscription.get(timeout=0.2).type, "ui.window.ghost")
         subscription.close()
 
+    def test_ghost_transition_resumes_session_once_in_memory(self) -> None:
+        with self.request("/api/action", body={"action": "window.ghost"}) as response:
+            self.assertTrue(json.load(response)["ok"])
+        with urllib.request.urlopen(self.application.ui_server.url + "/runtime-config.js", timeout=2) as response:
+            first = response.read().decode("utf-8")
+        with urllib.request.urlopen(self.application.ui_server.url + "/runtime-config.js", timeout=2) as response:
+            second = response.read().decode("utf-8")
+        self.assertIn(self.session_token, first)
+        self.assertNotIn(self.session_token, second)
+
     def test_ui_uses_events_not_polling(self) -> None:
         javascript = (UI_ROOT / "app.js").read_text(encoding="utf-8")
         self.assertIn("EventSource", javascript)

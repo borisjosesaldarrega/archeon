@@ -2,6 +2,7 @@
   "use strict";
   const runtime = window.ARCHEON_RUNTIME;
   if (!runtime?.token) return;
+  if (runtime.resumeSession && !sessionStorage.getItem("archeon_session")) sessionStorage.setItem("archeon_session", runtime.resumeSession);
   const baseHeaders = {"Content-Type":"application/json","X-Archeon-Token":runtime.token};
   let messages = {};
   let session = null;

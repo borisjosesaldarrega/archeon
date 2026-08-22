@@ -62,6 +62,9 @@ def main(argv: list[str] | None = None) -> int:
                 base_url=application.ui_server.url,
                 token=application.ui_server.token,
                 config=application.configuration.config,
+                action_handler=application.handle_action,
+                media_status_handler=application.media.status,
+                artwork_handler=application.media.artwork,
             )
             host.run(
                 initial_mode="ghost" if args.ghost else "main",

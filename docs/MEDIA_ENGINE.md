@@ -2,9 +2,9 @@
 
 ## Selected implementation
 
-Local playback uses `miniaudio` 1.71 with the Windows WASAPI backend. Metadata and embedded artwork use `tinytag` 2.3.0. Both live in the optional `media` dependency group and are imported only after the user loads or starts a track.
+Local playback uses `miniaudio` 1.71 with the Windows WASAPI backend. Metadata and embedded artwork use `tinytag` 2.3.0. Pillow 12.3.0 is used only when the native Ghost must render embedded art. All live in the optional `media` dependency group and are imported only by their owning active feature.
 
-This selection avoids the legacy 99 MB FFmpeg binary, NumPy buffers, yt-dlp startup work, a permanent output-device polling thread and external playback processes. The two wheels downloaded for this environment are approximately 274 kB and 37 kB respectively; both projects use the MIT license.
+This selection avoids the legacy 99 MB FFmpeg binary, NumPy buffers, yt-dlp startup work, a permanent output-device polling thread and external playback processes. The playback and metadata wheels are approximately 274 kB and 37 kB respectively; both projects use the MIT license. The 7.2 MB Pillow wheel is justified only for Ghost artwork and remains unloaded in idle/logo-only mode.
 
 Windows MCI was tested first because it would add no package dependency, but opening the recovered MP3 returned MCI initialization error 277 on this host. It was rejected as an unreliable primary backend rather than hidden behind a fake success state.
 
