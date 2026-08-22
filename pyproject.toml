@@ -23,4 +23,4 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [tool.setuptools.package-data]
-"archeon.ui" = ["*.html", "*.css", "*.js", "*.png", "*.ico", "*.wav", "*.mp3"]
+"archeon.ui" = ["*.html", "*.css", "*.js", "*.png", "*.ico", "*.wav", "*.mp3", "locales/*.json"]

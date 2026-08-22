@@ -6,43 +6,89 @@
   <title>ARCHEON</title>
   <link rel="stylesheet" href="/styles.css">
 </head>
-<body class="state-idle">
-  <main class="shell">
-    <header class="topbar">
-      <div><strong>ARCHEON</strong><span>CORE 10</span></div>
-      <button id="ghost-button" class="quiet-button" type="button">Modo Fantasma</button>
-    </header>
-    <section class="hero">
-      <div class="orb-stage" aria-label="Estado de ARCHEON">
-        <div class="ring ring-one"></div>
-        <div class="ring ring-two"></div>
-        <div class="orb">
-          <img id="core-art" src="/logo_asitente.png" alt="Orbe ARCHEON">
-        </div>
+<body class="state-idle auth-active">
+  <div class="background-curtain" aria-hidden="true"></div>
+
+  <main id="auth-shell" class="auth-shell">
+    <div class="auth-brand">
+      <img src="/logo_asitente.png" alt="ARCHEON">
+      <div><h1>ARCHEON</h1><p>NEURAL INTERFACE SYSTEM</p></div>
+    </div>
+    <section class="access-card" aria-live="polite">
+      <div class="access-line"></div>
+      <div id="auth-welcome" class="auth-view active">
+        <span class="eyebrow" data-i18n="access.system">SISTEMA DE ACCESO</span>
+        <h2 data-i18n="access.welcome">Bienvenido a ARCHEON</h2>
+        <p class="muted" data-i18n="access.choose">Selecciona cómo deseas iniciar la interfaz.</p>
+        <button class="primary" data-auth-view="login" data-i18n="access.login">Iniciar sesión</button>
+        <button class="outline" data-auth-view="register" data-i18n="access.register">Registrarse</button>
+        <button id="guest-button" class="ghost-action" data-i18n="access.guest">Continuar como invitado</button>
       </div>
-      <p id="assistant-state" class="state-label">EN LÍNEA</p>
-      <p class="substate">CORE LOCAL · MÓDULOS PESADOS SUSPENDIDOS</p>
-    </section>
-    <section id="music-panel" class="music-panel" aria-label="Reproductor local">
-      <div class="track-copy"><strong id="track-title">Sin reproducción activa</strong><span id="track-artist"></span></div>
-      <div class="media-controls">
-        <button id="music-stop" type="button" aria-label="Detener">■</button>
-        <button id="music-play" type="button" aria-label="Reproducir">▶</button>
-        <button id="music-pause" type="button" aria-label="Pausar">Ⅱ</button>
-      </div>
-      <audio id="music-audio" preload="none" src="/archeon-audio.mp3"></audio>
-    </section>
-    <section class="command-panel">
-      <form id="command-form">
-        <label for="command-input">Orden local</label>
-        <div class="command-row">
-          <input id="command-input" autocomplete="off" maxlength="2000" placeholder="Prueba: estado del sistema">
-          <button type="submit">Ejecutar</button>
-        </div>
+
+      <form id="auth-login" class="auth-view">
+        <button class="back" type="button" data-auth-view="welcome" aria-label="Volver">←</button>
+        <span class="eyebrow" data-i18n="login.channel">CANAL SEGURO</span>
+        <h2 data-i18n="access.login">Iniciar sesión</h2>
+        <label><span data-i18n="field.email">Correo electrónico</span><input id="login-email" type="email" autocomplete="username" required></label>
+        <label><span data-i18n="field.password">Contraseña</span><input id="login-password" type="password" autocomplete="current-password" required minlength="8"></label>
+        <p class="provider-note"><span data-i18n="auth.dev_provider">Proveedor local de desarrollo</span> · Firebase OFF</p>
+        <button class="primary" type="submit" data-i18n="access.login">Iniciar sesión</button>
       </form>
-      <pre id="result" aria-live="polite">Core listo.</pre>
+
+      <form id="auth-register" class="auth-view">
+        <button class="back" type="button" data-auth-view="welcome" aria-label="Volver">←</button>
+        <span class="eyebrow" data-i18n="register.identity">NUEVA IDENTIDAD</span>
+        <h2 data-i18n="access.register">Registrarse</h2>
+        <label><span data-i18n="field.name">Nombre</span><input id="register-name" autocomplete="name" required maxlength="40"></label>
+        <label><span data-i18n="field.email">Correo electrónico</span><input id="register-email" type="email" autocomplete="username" required></label>
+        <label><span data-i18n="field.password">Contraseña</span><input id="register-password" type="password" autocomplete="new-password" required minlength="8"></label>
+        <button class="primary" type="submit" data-i18n="register.create">Crear identidad</button>
+      </form>
+      <p id="auth-message" class="auth-message" role="status"></p>
+      <select id="language-select" class="language-select" aria-label="Idioma"><option value="es">ES</option><option value="en">EN</option></select>
     </section>
   </main>
+
+  <main id="app-shell" class="app-shell" hidden>
+    <header class="clock-widget"><time id="clock-time">--:--</time><span id="clock-date">---</span></header>
+    <div class="top-actions">
+      <span id="session-badge" class="session-badge"></span>
+      <button id="ghost-button" class="icon-button" type="button" data-i18n-aria="action.ghost" aria-label="Modo Fantasma">◉</button>
+      <button id="menu-button" class="icon-button" type="button" aria-label="Menú">☰</button>
+    </div>
+
+    <aside id="sidebar" class="sidebar">
+      <button id="close-menu" class="close-button" aria-label="Cerrar">×</button>
+      <div class="profile"><div class="profile-icon">A</div><strong id="profile-name">ARCHEON</strong><span id="profile-email"></span></div>
+      <button class="menu-item" data-i18n="menu.voice">🎙 Voz y micrófono</button>
+      <button class="menu-item" data-i18n="menu.settings">⚙ Configuración</button>
+      <button id="logout-button" class="menu-item logout" data-i18n="menu.logout">Cerrar sesión</button>
+    </aside>
+
+    <section class="visualizer" aria-label="Estado de ARCHEON">
+      <div class="ring r1"></div><div class="ring r2"></div><div class="ring r3"></div>
+      <div class="core"><img id="core-art" src="/logo_asitente.png" alt="Orbe ARCHEON"></div>
+      <div class="amplitude" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+    </section>
+
+    <section class="status-container">
+      <p id="assistant-state">IDLE</p>
+      <span id="assistant-detail" data-i18n="state.ready">Sistema local preparado</span>
+      <button id="voice-button" class="voice-button" disabled><span>◉</span><span data-i18n="voice.experimental">VOZ · EXPERIMENTAL (BACKEND PENDIENTE)</span></button>
+    </section>
+
+    <section class="command-console">
+      <form id="command-form"><input id="command-input" maxlength="2000" autocomplete="off" data-i18n-placeholder="command.placeholder" placeholder="Escribe una orden local"><button data-i18n="command.run">Ejecutar</button></form>
+      <pre id="result" aria-live="polite"></pre>
+    </section>
+
+    <section id="music-panel" class="music-widget">
+      <div class="track-copy"><strong id="track-title" data-i18n="music.none">Sin reproducción activa</strong><span id="track-artist"></span></div>
+      <div class="media-controls"><button id="music-stop" aria-label="Detener">■</button><button id="music-play" aria-label="Reproducir">▶</button><button id="music-pause" aria-label="Pausar">Ⅱ</button></div>
+      <audio id="music-audio" preload="none" src="/archeon-audio.mp3"></audio>
+    </section>
+  </main>
+
   <script src="/runtime-config.js"></script>
   <script src="/app.js"></script>
 </body>
