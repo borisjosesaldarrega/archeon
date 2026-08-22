@@ -7,6 +7,7 @@ from pathlib import Path
 from threading import RLock
 from typing import Any
 
+from archeon.audio import AudioManager
 from archeon.core.config import ConfigurationManager, default_data_dir
 from archeon.core.events import EventBus
 from archeon.core.lifecycle import LifecycleManager
@@ -15,6 +16,7 @@ from archeon.core.permissions import PermissionEngine
 from archeon.core.secure_logging import close_logger, configure_logging, log_event
 from archeon.core.tools import ToolEngine
 from archeon.database import DatabaseManager
+from archeon.plugins import PluginManager
 from archeon.system import DeviceSystemEngine
 from archeon.ui.server import UIServer
 
@@ -28,6 +30,8 @@ class ArcheonApplication:
         self.permissions = PermissionEngine(self.configuration)
         self.tools = ToolEngine(self.events, self.permissions)
         self.database = DatabaseManager()
+        self.audio = AudioManager(self.events)
+        self.plugins = PluginManager(self.events, self.data_dir / "plugins")
         self.system = DeviceSystemEngine(self.tools)
         self.orchestrator = Orchestrator(self.events, self.tools)
         self.ui_server = UIServer(
@@ -38,7 +42,15 @@ class ArcheonApplication:
             port=port,
         )
         self.lifecycle = LifecycleManager(
-            (self.configuration, self.database, self.system, self.tools, self.ui_server)
+            (
+                self.configuration,
+                self.database,
+                self.system,
+                self.tools,
+                self.audio,
+                self.plugins,
+                self.ui_server,
+            )
         )
         self._started = False
         self._lock = RLock()
@@ -102,6 +114,8 @@ class ArcheonApplication:
             "tools_registered": len(self.tools.manifests()),
             "tools_loaded": self.tools.loaded_tool_count,
             "database": self.database.health(),
+            "audio_backend_loaded": self.audio.backend_loaded,
+            "plugins_loaded": self.plugins.loaded_count,
             "event_subscribers": self.events.subscriber_count,
         }
 
