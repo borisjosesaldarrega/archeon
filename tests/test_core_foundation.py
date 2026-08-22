@@ -8,6 +8,7 @@ from pathlib import Path
 from archeon.core.config import ConfigurationManager
 from archeon.core.language import LanguageContextEngine
 from archeon.core.events import EventBus
+from archeon.sync import ConflictResolution, SettingsEnvelope, SettingsSyncEngine
 from archeon.core.lifecycle import ComponentState, LifecycleManager, ManagedComponent
 from archeon.core.secure_logging import configure_logging
 
@@ -79,6 +80,10 @@ class CoreFoundationTests(unittest.TestCase):
             self.assertFalse(manager.config.privacy.cloud_processing_allowed)
             self.assertFalse(manager.config.privacy.cloud_screenshots_allowed)
             self.assertFalse(manager.config.startup.startup_sound)
+            payloads = manager.sync_payloads()
+            self.assertGreater(payloads["account"]["version"], 0)
+            self.assertNotIn("background_path", payloads["account"]["settings"]["appearance"])
+            self.assertIn("background_path", payloads["device"]["settings"]["appearance"])
             manager.stop()
 
     def test_settings_reject_unknown_fields(self) -> None:
@@ -94,6 +99,13 @@ class CoreFoundationTests(unittest.TestCase):
         self.assertEqual(explicit.response_language, "es")
         self.assertEqual(explicit.source, "explicit_request")
         self.assertEqual(engine.decide("設定を開いてください", fallback="es").response_language, "ja")
+
+    def test_settings_sync_conflicts_use_version_then_timestamp(self) -> None:
+        local = SettingsEnvelope(3, "2026-08-21T10:00:00+00:00", {"theme": "dark"})
+        remote = SettingsEnvelope(2, "2026-08-21T11:00:00+00:00", {"theme": "light"})
+        self.assertEqual(SettingsSyncEngine.resolve(local, remote), ConflictResolution.LOCAL)
+        newer_remote = SettingsEnvelope(3, "2026-08-21T12:00:00+00:00", {})
+        self.assertEqual(SettingsSyncEngine.resolve(local, newer_remote), ConflictResolution.REMOTE)
 
     def test_logging_redacts_secret_values(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

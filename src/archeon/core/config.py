@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from threading import RLock
@@ -112,7 +113,7 @@ class StartupConfig:
 
 @dataclass(slots=True)
 class SyncConfig:
-    enabled: bool = True
+    enabled: bool = False
     settings: bool = True
     personalization: bool = True
     history: bool = False
@@ -212,11 +213,54 @@ class ConfigurationManager(ManagedComponent):
             if unknown:
                 raise ValueError(f"unknown_setting:{section_name}.{sorted(unknown)[0]}")
             known.update(section_changes)
+        sync = current["sync"]
+        sync["version"] = max(0, int(sync.get("version", 0))) + 1
+        sync["updated_at"] = datetime.now(timezone.utc).isoformat()
         updated = self._decode(current)
         with self._lock:
             self._config = updated
             self.save()
         return self.public_settings()
+
+    def sync_payloads(self) -> dict[str, dict[str, Any]]:
+        """Split portable account preferences from machine-specific settings."""
+        value = self.public_settings()
+        appearance = value["appearance"]
+        account_appearance = {
+            key: appearance[key]
+            for key in ("theme", "reduced_motion", "high_contrast", "ui_scale", "text_scale")
+        }
+        device_appearance = {
+            key: appearance[key]
+            for key in (
+                "background_type", "background_path", "background_fit", "background_blur",
+                "background_opacity", "logo_path",
+            )
+        }
+        envelope = {"version": value["sync"]["version"], "updated_at": value["sync"]["updated_at"]}
+        return {
+            "account": {
+                **envelope,
+                "settings": {
+                    "language": value["language"],
+                    "assistant": value["assistant"],
+                    "appearance": account_appearance,
+                    "privacy": value["privacy"],
+                },
+            },
+            "device": {
+                **envelope,
+                "settings": {
+                    "performance": value["performance"],
+                    "ghost": value["ghost"],
+                    "audio": value["audio"],
+                    "voice": value["voice"],
+                    "appearance": device_appearance,
+                    "clock": value["clock"],
+                    "startup": value["startup"],
+                },
+            },
+        }
 
     @staticmethod
     def _decode(data: dict[str, Any]) -> AppConfig:
@@ -330,7 +374,7 @@ class ConfigurationManager(ManagedComponent):
                 startup_sound=bool(startup.get("startup_sound", False)),
             ),
             sync=SyncConfig(
-                enabled=bool(sync.get("enabled", True)),
+                enabled=bool(sync.get("enabled", False)),
                 settings=bool(sync.get("settings", True)),
                 personalization=bool(sync.get("personalization", True)),
                 history=bool(sync.get("history", False)),
