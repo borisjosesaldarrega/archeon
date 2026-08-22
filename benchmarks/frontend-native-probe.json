@@ -1,0 +1,14 @@
+{
+  "timestamp": "2026-08-22T02:35:41.057793+00:00",
+  "scenario": "native_tk_full_window_probe",
+  "ram_mb_avg": 27.005,
+  "ram_mb_peak": 27.008,
+  "private_mb_avg": 12.234,
+  "cpu_percent_avg": 1.505,
+  "cpu_percent_peak": 6.2,
+  "process_count": 1,
+  "handles_peak": 201,
+  "threads_peak": 7,
+  "exit_code": 0,
+  "scope": "rendering feasibility only; no WebView, media, auth, or accessibility bridge"
+}

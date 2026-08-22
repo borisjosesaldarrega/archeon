@@ -5,7 +5,7 @@ Date: 2026-08-21 (America/Guayaquil)
 The new application is runnable through `archeon`, while the recovered legacy
 tree remains unchanged behind checkpoint `5dcdb89`.
 
-## Verified runtime
+## Original verified runtime
 
 - Core startup: 8–14 ms across the recorded scenarios.
 - Headless Core: 33.711 MB working set / 17.930 MB private, 0.0% sampled idle CPU.
@@ -25,6 +25,16 @@ the three-second window; longer steady-state sampling is the next measurement.
 Per-process GPU counters were unavailable through psutil on this machine, so the
 result is explicitly `null`, never estimated. Full data is stored in
 `benchmarks/latest.json` and the append-only `benchmarks/history.jsonl`.
+
+## Corrected current sampler
+
+The Windows virtual-environment executable is a launcher. A later run mistakenly
+followed that launcher and omitted WebView2; the benchmark now follows the real
+PID announced by ARCHEON. The final 2026-08-21 post-voice/media run measured
+29.4 MB Core, 39.8 MB Ghost idle, 44.6 MB Ghost + music, 466.3 MB full UI short
+idle and 459.0 MB full UI + music. A longer full-UI idle sample measured
+457.3 MB and 0.31% CPU. See `UI_FRONTEND_EVALUATION.md`; these figures replace
+the incomplete 102 MB graphical sample, not the original 487/544 MB observation.
 
 ## Dependency gate
 

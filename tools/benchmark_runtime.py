@@ -19,8 +19,11 @@ RESULTS = ROOT / "benchmarks"
 
 
 def family(root: psutil.Process) -> list[psutil.Process]:
-    candidates = [root, *root.children(recursive=True)]
-    return [process for process in candidates if process.is_running()]
+    try:
+        candidates = [root, *root.children(recursive=True)]
+        return [process for process in candidates if process.is_running()]
+    except psutil.NoSuchProcess:
+        return []
 
 
 def measure(name: str, extra: list[str], *, warmup: float, sample: float) -> dict[str, object]:
@@ -46,10 +49,13 @@ def measure(name: str, extra: list[str], *, warmup: float, sample: float) -> dic
     )
     assert child.stdout is not None
     ready = json.loads(child.stdout.readline())
-    root = psutil.Process(child.pid)
+    # On Windows a venv executable can be a short-lived launcher. ARCHEON
+    # announces the real interpreter PID so descendants (including WebView2)
+    # are attributed to the application instead of the launcher.
+    root = psutil.Process(int(ready["pid"]))
     ui_ready_ms: float | None = None
     deadline = time.perf_counter() + warmup
-    while time.perf_counter() < deadline and child.poll() is None:
+    while time.perf_counter() < deadline and root.is_running():
         names = {process.name().lower() for process in family(root)}
         if ui_ready_ms is None and any("webview2" in item for item in names):
             ui_ready_ms = (time.perf_counter() - wall_started) * 1000
@@ -67,7 +73,7 @@ def measure(name: str, extra: list[str], *, warmup: float, sample: float) -> dic
     rss_samples: list[int] = []
     private_samples: list[int] = []
     sample_deadline = time.perf_counter() + sample
-    while time.perf_counter() < sample_deadline and child.poll() is None:
+    while time.perf_counter() < sample_deadline and root.is_running():
         time.sleep(min(0.25, max(0.01, sample_deadline - time.perf_counter())))
         current = family(root)
         for process in current:
@@ -103,7 +109,10 @@ def measure(name: str, extra: list[str], *, warmup: float, sample: float) -> dic
         "cpu_idle_percent_peak": round(max(samples), 3),
         "process_count": len(process_names),
         "process_names": process_names,
-        "music_started_confirmed": "music.started" in log_text if name == "music" else None,
+        "music_started_confirmed": (
+            "music.started" in log_text
+            or ('"event":"archeon.benchmark.music","ok":true' in stdout_tail)
+        ) if "music" in name else None,
         "gpu_percent": None,
         "gpu_note": "Per-process GPU counters are unavailable through psutil on this host.",
         "exit_code": child.returncode,
@@ -116,11 +125,13 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--warmup", type=float, default=3.0)
     parser.add_argument("--sample", type=float, default=3.0)
+    parser.add_argument("--scenarios", nargs="+", choices=("headless", "main", "ghost", "ghost_music", "music"))
     args = parser.parse_args()
     scenarios = {
         "headless": ["--headless"],
         "main": [],
         "ghost": ["--ghost"],
+        "ghost_music": ["--ghost", "--benchmark-music"],
         "music": ["--benchmark-music"],
     }
     result = {
@@ -129,8 +140,8 @@ def main() -> int:
         "python": sys.version.split()[0],
         "executable": str(sys.executable),
         "scenarios": [
-            measure(name, extra, warmup=args.warmup, sample=args.sample)
-            for name, extra in scenarios.items()
+            measure(name, scenarios[name], warmup=args.warmup, sample=args.sample)
+            for name in (args.scenarios or list(scenarios))
         ],
     }
     RESULTS.mkdir(exist_ok=True)

@@ -1,0 +1,26 @@
+{
+  "scenario": "main_steady",
+  "warmup_seconds": 5,
+  "sample_seconds": 10,
+  "core_startup_ms": 12.084,
+  "ui_process_ready_ms": 868.17,
+  "ram_idle_mb_avg": 457.344,
+  "ram_idle_mb_peak": 459.059,
+  "private_memory_mb_avg": 245.757,
+  "private_memory_mb_peak": 247.793,
+  "cpu_idle_percent_avg": 0.31,
+  "cpu_idle_percent_peak": 6.2,
+  "process_count": 7,
+  "process_names": [
+    "python.exe",
+    "msedgewebview2.exe",
+    "msedgewebview2.exe",
+    "msedgewebview2.exe",
+    "msedgewebview2.exe",
+    "msedgewebview2.exe",
+    "msedgewebview2.exe"
+  ],
+  "gpu_percent": null,
+  "gpu_note": "Per-process GPU counters are unavailable through psutil on this host.",
+  "exit_code": 0
+}

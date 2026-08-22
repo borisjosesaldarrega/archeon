@@ -57,6 +57,15 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 Event().wait()
         else:
+            if args.benchmark_music and args.ghost:
+                benchmark_result = application.handle_action("media.play")
+                print(
+                    json.dumps(
+                        {"event": "archeon.benchmark.music", "ok": benchmark_result.get("ok", False)},
+                        separators=(",", ":"),
+                    ),
+                    flush=True,
+                )
             host = DesktopHost(
                 application.events,
                 base_url=application.ui_server.url,
