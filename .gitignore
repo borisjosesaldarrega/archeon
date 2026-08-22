@@ -24,6 +24,7 @@ __pycache__/
 *.egg-info/
 /src/archeon/ui/chime.wav
 /models/
+/backups/
 
 # Build products and bundled third-party binaries
 build/
