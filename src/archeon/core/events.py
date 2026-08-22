@@ -24,7 +24,7 @@ class Event:
     sensitive: bool = False
 
     def to_dict(self, *, include_sensitive: bool = False) -> dict[str, Any]:
-        payload: Mapping[str, Any] | str = self.payload
+        payload: dict[str, Any] | str = dict(self.payload)
         if self.sensitive and not include_sensitive:
             payload = "<redacted>"
         return {
@@ -180,4 +180,3 @@ class EventBus:
     def subscriber_count(self) -> int:
         with self._lock:
             return len(self._subscribers)
-
