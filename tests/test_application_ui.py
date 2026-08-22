@@ -5,10 +5,12 @@ import tempfile
 import unittest
 import urllib.error
 import urllib.request
+import time
 from pathlib import Path
 
 from archeon.app import ArcheonApplication
 from archeon.auth import DevelopmentAuthProvider, MemorySessionVault
+from archeon.auth.manager import Identity, ProviderSession
 from archeon.ui.server import UI_ROOT
 
 
@@ -89,6 +91,34 @@ class ApplicationUITests(unittest.TestCase):
         self.assertEqual(updated["settings"]["assistant"]["wake_name"], "Nova")
         self.assertEqual(subscription.get(timeout=0.2).payload["sections"], ["assistant"])
         subscription.close()
+
+    def test_sync_action_uses_authenticated_session_without_exposing_provider_token(self) -> None:
+        account = self.application.auth._create(
+            ProviderSession(
+                Identity("11111111-1111-1111-1111-111111111111", "owner@example.test", "Owner"),
+                "provider-jwt", "provider-refresh", int(time.time()) + 3600, True,
+            ),
+            "account",
+        )
+        self.session_token = account.token
+        captured = {}
+
+        class FakeSync:
+            def synchronize(_self, user_id, access_token, account_value, device_value):
+                captured.update(user_id=user_id, access_token=access_token)
+                return {
+                    "ok": True, "queued": False, "status": "synchronized",
+                    "account": account_value, "device": device_value,
+                    "actions": {"account": "uploaded", "device": "uploaded"},
+                }
+
+        self.application.settings_sync = FakeSync()
+        with self.request("/api/action", body={"action": "sync.now", "_session_token": "spoofed"}) as response:
+            result = json.load(response)
+        self.assertTrue(result["ok"])
+        self.assertEqual(captured["user_id"], "11111111-1111-1111-1111-111111111111")
+        self.assertEqual(captured["access_token"], "provider-jwt")
+        self.assertNotIn("provider-jwt", json.dumps(result))
 
     def test_ghost_transition_resumes_session_once_in_memory(self) -> None:
         with self.request("/api/action", body={"action": "window.ghost"}) as response:

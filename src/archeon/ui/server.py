@@ -277,6 +277,7 @@ class UIServer(ManagedComponent):
                     if not isinstance(action, str):
                         self._json({"ok": False, "error": "invalid action"}, HTTPStatus.BAD_REQUEST)
                         return
+                    payload["_session_token"] = self.headers.get("X-Archeon-Session", "")
                     result = owner._action_handler(action, payload)
                     if result.get("ok") and action == "window.ghost":
                         with owner._continuation_lock:

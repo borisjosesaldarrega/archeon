@@ -27,6 +27,11 @@ class LauncherTests(unittest.TestCase):
             self.assertEqual(engine.command_item("abre mi ejemplo").id, item["id"])
             self.assertEqual(engine.command_item("open Example App").id, item["id"])
             self.assertEqual(engine.list_items("favorites")[0]["name"], "Example App")
+            portable = engine.portable_state()
+            self.assertEqual(portable["favorites"], [{"name": "Example App", "kind": "app"}])
+            engine._launcher_state = {"favorites": [], "recent": [], "aliases": {}}
+            engine.apply_portable_state(portable)
+            self.assertEqual(engine.command_item("abre mi ejemplo").name, "Example App")
             stored = (root / "data/launcher.json").read_text(encoding="utf-8")
             self.assertNotIn(str(shortcut), stored)
 

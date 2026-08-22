@@ -429,6 +429,29 @@ class AuthManager(ManagedComponent):
         with self._lock:
             return self._sessions.get(token)
 
+    def cloud_identity(self, token: str) -> tuple[Identity, str]:
+        """Return a fresh provider credential for an internal authenticated request."""
+        current = self._provider_for(token)
+        if current.expires_at and current.expires_at <= int(time.time()) + 30:
+            updated = self._provider.refresh(current.refresh_token)
+            with self._lock:
+                if token not in self._sessions:
+                    raise ValueError("session_required")
+                self._provider_sessions[token] = updated
+                self._sessions[token] = Session(
+                    token, updated.identity, "account", updated.email_verified, updated.pending_confirmation,
+                )
+            if updated.refresh_token:
+                self._vault.save({
+                    "refresh_token": updated.refresh_token,
+                    "user_id": updated.identity.user_id,
+                    "saved_at": int(time.time()),
+                })
+            current = updated
+        if not current.access_token:
+            raise ValueError("account_session_required")
+        return current.identity, current.access_token
+
     def logout(self, token: str, *, scope: str = "global") -> bool:
         with self._lock:
             session = self._sessions.pop(token, None)

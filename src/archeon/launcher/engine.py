@@ -213,6 +213,42 @@ class LauncherEngine(ManagedComponent):
         self._launcher_state["aliases"][normalized] = item_id
         self._save()
 
+    def portable_state(self) -> dict[str, list[dict[str, str]]]:
+        """Export favorites and aliases without leaking local targets or identifiers."""
+        self.refresh()
+        favorites = set(self._launcher_state["favorites"])
+        favorite_items = [
+            {"name": item.name, "kind": item.kind}
+            for item in self._items.values() if item.id in favorites
+        ]
+        aliases = []
+        for alias, item_id in self._launcher_state["aliases"].items():
+            item = self._items.get(item_id)
+            if item is not None:
+                aliases.append({"alias": alias, "name": item.name, "kind": item.kind})
+        return {"favorites": favorite_items, "aliases": aliases}
+
+    def apply_portable_state(self, value: dict[str, Any]) -> None:
+        """Resolve portable names against this machine's bounded local catalog."""
+        self.refresh()
+        by_key = {(self.normalize(item.name), item.kind): item.id for item in self._items.values()}
+        favorites: set[str] = set()
+        for entry in value.get("favorites", []):
+            if isinstance(entry, dict):
+                item_id = by_key.get((self.normalize(str(entry.get("name", ""))), str(entry.get("kind", ""))))
+                if item_id:
+                    favorites.add(item_id)
+        aliases: dict[str, str] = {}
+        for entry in value.get("aliases", []):
+            if isinstance(entry, dict):
+                item_id = by_key.get((self.normalize(str(entry.get("name", ""))), str(entry.get("kind", ""))))
+                alias = self.normalize(str(entry.get("alias", "")))
+                if item_id and alias:
+                    aliases[alias] = item_id
+        self._launcher_state["favorites"] = sorted(favorites)
+        self._launcher_state["aliases"] = aliases
+        self._save()
+
     def command_item(self, text: str) -> LaunchItem | None:
         self.refresh()
         normalized = self.normalize(text)

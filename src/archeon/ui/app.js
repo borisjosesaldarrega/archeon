@@ -117,6 +117,14 @@
     if (detailKey) detailElement.textContent = t(detailKey);
   }
   const postAction = async (action, payload = {}) => (await fetch("/api/action", {method:"POST",headers:headers(),body:JSON.stringify({action,...payload})})).json();
+  async function syncNow() {
+    const status=document.getElementById("settings-sync-status");
+    status.textContent="Sincronizando…";
+    const result=await postAction("sync.now");
+    if(result.ok&&result.settings)applySettings(result.settings);
+    status.textContent=result.ok?(result.queued?"Sin conexión: cambios guardados para el próximo intento":"Sincronización completada"):(result.error||"sync_error");
+    return result;
+  }
   const voiceDialog = document.getElementById("voice-settings");
   function fillSelect(select, items, selected, includeDefault = true) {
     select.replaceChildren();
@@ -240,6 +248,7 @@
     document.getElementById("settings-clock-date").checked=result.settings.clock.show_date;
     document.getElementById("settings-startup-sound").checked=result.settings.startup.startup_sound;
     document.getElementById("settings-cloud").checked=result.settings.privacy.cloud_processing_allowed;
+    document.getElementById("settings-sync-enabled").checked=result.settings.sync.enabled;
     document.getElementById("settings-message").textContent="";
     settingsDialog.showModal();
   });
@@ -253,12 +262,15 @@
       startup:{startup_sound:document.getElementById("settings-startup-sound").checked},
       clock:{visible:document.getElementById("settings-clock-visible").checked,use_24_hour:document.getElementById("settings-clock-24h").checked,show_seconds:document.getElementById("settings-clock-seconds").checked,show_date:document.getElementById("settings-clock-date").checked},
       privacy:{cloud_processing_allowed:document.getElementById("settings-cloud").checked},
+      sync:{enabled:document.getElementById("settings-sync-enabled").checked,settings:true,personalization:true},
     }});
     const message=document.getElementById("settings-message");
     if(!result.ok){message.textContent=result.error||"settings_error";return;}
     applySettings(result.settings); await loadLocale(interfaceLanguage); document.getElementById("language-select").value=interfaceLanguage;
+    if(result.settings.sync.enabled&&session?.mode==="account")await syncNow();
     message.textContent=t("settings.saved"); setTimeout(()=>settingsDialog.close(),450);
   });
+  document.getElementById("settings-sync-now").addEventListener("click",syncNow);
   [["settings-choose-image","image"],["settings-choose-video","video"],["settings-choose-logo","logo"]].forEach(([id,kind])=>document.getElementById(id).addEventListener("click",async()=>{const result=await postAction("appearance.choose",{kind});if(result.ok&&!result.cancelled)applySettings(result.settings);}));
   document.getElementById("settings-clear-visuals").addEventListener("click",async()=>{const result=await postAction("appearance.clear");if(result.ok)applySettings(result.settings);});
   document.getElementById("ghost-button").addEventListener("click", () => postAction("window.ghost"));
@@ -320,6 +332,20 @@
   function updateClock(){const now=new Date(),clock=settingsCache?.clock||{};document.getElementById("clock-time").textContent=now.toLocaleTimeString(document.documentElement.lang,{hour:"2-digit",minute:"2-digit",second:clock.show_seconds?"2-digit":undefined,hour12:clock.use_24_hour?false:undefined});document.getElementById("clock-date").textContent=now.toLocaleDateString(document.documentElement.lang,{weekday:"long",day:"numeric",month:"long"});const unit=clock.show_seconds?1000:60000;setTimeout(updateClock,unit-(Date.now()%unit));}
   document.getElementById("language-select").addEventListener("change",(event)=>loadLocale(event.target.value));
 
+  async function loadCurrentSettings(locale) {
+    let current=await postAction("settings.get");
+    if(!current.ok)return;
+    if(current.settings.sync?.enabled&&session?.mode==="account"){
+      const synced=await postAction("sync.now");
+      if(synced.ok&&synced.settings)current={ok:true,settings:synced.settings};
+    }
+    applySettings(current.settings);
+    if(current.settings.language.interface!==locale){
+      document.getElementById("language-select").value=current.settings.language.interface;
+      await loadLocale(current.settings.language.interface);
+    }
+  }
+
   (async()=>{
     const locale=localStorage.getItem("archeon_locale")||"es";
     document.getElementById("language-select").value=locale;
@@ -329,6 +355,7 @@
         const restored=await auth("restore");
         sessionStorage.setItem("archeon_session",restored.session_token);
         enterApplication(restored.session);
+        await loadCurrentSettings(locale);
       } catch(_) { /* Offline and first-run both keep the access screen usable. */ }
       return;
     }
@@ -337,14 +364,7 @@
       const value=await response.json();
       if(!value.ok){sessionStorage.removeItem("archeon_session");return;}
       enterApplication(value.session);
-      const current=await postAction("settings.get");
-      if(current.ok){
-        applySettings(current.settings);
-        if(current.settings.language.interface!==locale){
-          document.getElementById("language-select").value=current.settings.language.interface;
-          await loadLocale(current.settings.language.interface);
-        }
-      }
+      await loadCurrentSettings(locale);
     } catch(_){sessionStorage.removeItem("archeon_session");}
   })();
 })();

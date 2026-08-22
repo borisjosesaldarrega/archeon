@@ -1,5 +1,14 @@
 """Offline-first settings synchronization primitives."""
 
-from .engine import ConflictResolution, SettingsEnvelope, SettingsSyncEngine
+from .engine import (
+    CloudSyncOfflineError,
+    ConflictResolution,
+    SettingsEnvelope,
+    SettingsSyncEngine,
+    SupabaseSettingsSync,
+)
 
-__all__ = ["ConflictResolution", "SettingsEnvelope", "SettingsSyncEngine"]
+__all__ = [
+    "CloudSyncOfflineError", "ConflictResolution", "SettingsEnvelope",
+    "SettingsSyncEngine", "SupabaseSettingsSync",
+]

@@ -84,6 +84,12 @@ class CoreFoundationTests(unittest.TestCase):
             self.assertGreater(payloads["account"]["version"], 0)
             self.assertNotIn("background_path", payloads["account"]["settings"]["appearance"])
             self.assertIn("background_path", payloads["device"]["settings"]["appearance"])
+            self.assertNotIn("position_x", payloads["account"]["settings"]["ghost"])
+            self.assertIn("position_x", payloads["device"]["settings"]["ghost"])
+            self.assertNotIn("input_device_id", payloads["account"]["settings"]["voice"])
+            version = manager.config.sync.version
+            manager.touch_sync()
+            self.assertEqual(manager.config.sync.version, version + 1)
             manager.stop()
 
     def test_settings_reject_unknown_fields(self) -> None:

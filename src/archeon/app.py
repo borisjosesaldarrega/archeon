@@ -22,6 +22,7 @@ from archeon.media import MediaEngine, MediaState
 from archeon.launcher import LauncherEngine
 from archeon.plugins import PluginManager
 from archeon.system import DeviceSystemEngine
+from archeon.sync import SupabaseSettingsSync
 from archeon.ui.server import UIServer
 from archeon.voice import VoicePipeline
 
@@ -43,15 +44,17 @@ class ArcheonApplication:
         self.permissions = PermissionEngine(self.configuration)
         self.tools = ToolEngine(self.events, self.permissions)
         self.database = DatabaseManager()
+        supabase_url = os.environ.get("ARCHEON_SUPABASE_URL", "https://rcgipowzivogyqbuwzlv.supabase.co")
+        supabase_key = os.environ.get(
+            "ARCHEON_SUPABASE_PUBLISHABLE_KEY",
+            "sb_publishable_V0kfZlDv6HKNudCl_vObeQ_pRbDU1RU",
+        )
         self.auth = AuthManager(
             self.events,
             auth_provider
             or SupabaseAuthProvider(
-                os.environ.get("ARCHEON_SUPABASE_URL", "https://rcgipowzivogyqbuwzlv.supabase.co"),
-                os.environ.get(
-                    "ARCHEON_SUPABASE_PUBLISHABLE_KEY",
-                    "sb_publishable_V0kfZlDv6HKNudCl_vObeQ_pRbDU1RU",
-                ),
+                supabase_url,
+                supabase_key,
             ),
             auth_vault or WindowsDpapiSessionVault(self.data_dir / "secure" / "auth-session.dpapi"),
         )
@@ -62,6 +65,7 @@ class ArcheonApplication:
             output_device_provider=lambda: self.configuration.config.audio.output_device_id,
         )
         self.launcher = LauncherEngine(self.data_dir)
+        self.settings_sync = SupabaseSettingsSync(supabase_url, supabase_key, self.data_dir)
         self.plugins = PluginManager(self.events, self.data_dir / "plugins")
         self.system = DeviceSystemEngine(self.tools)
         self.orchestrator = Orchestrator(
@@ -180,6 +184,28 @@ class ArcheonApplication:
             )
             self.voice.sync_wake_word()
             return {"ok": True, "settings": settings}
+        if action == "sync.now":
+            try:
+                identity, access_token = self.auth.cloud_identity(str(payload.get("_session_token", "")))
+                envelopes = self.configuration.sync_payloads()
+                envelopes["account"]["settings"]["launcher"] = self.launcher.portable_state()
+                result = self.settings_sync.synchronize(
+                    identity.user_id, access_token, envelopes["account"], envelopes["device"],
+                )
+                if not result.get("queued"):
+                    settings = self.configuration.apply_sync_payloads(result["account"], result["device"])
+                    launcher = result["account"].get("settings", {}).get("launcher")
+                    if isinstance(launcher, dict):
+                        self.launcher.apply_portable_state(launcher)
+                    self.voice.sync_wake_word()
+                    result["settings"] = settings
+                self.events.publish(
+                    "sync.completed" if not result.get("queued") else "sync.queued",
+                    {"status": result.get("status")}, source="application",
+                )
+                return result
+            except (OSError, TypeError, ValueError) as error:
+                return {"ok": False, "error": str(error)}
         if action == "window.ghost":
             self.configuration.config.ghost.enabled = True
             self.configuration.save()
@@ -204,12 +230,14 @@ class ArcheonApplication:
         if action == "launcher.favorite":
             try:
                 self.launcher.favorite(str(payload.get("id", "")), bool(payload.get("enabled")))
+                self.configuration.touch_sync()
                 return {"ok": True}
             except ValueError as error:
                 return {"ok": False, "error": str(error)}
         if action == "launcher.alias":
             try:
                 self.launcher.set_alias(str(payload.get("alias", "")), str(payload.get("id", "")))
+                self.configuration.touch_sync()
                 return {"ok": True}
             except ValueError as error:
                 return {"ok": False, "error": str(error)}

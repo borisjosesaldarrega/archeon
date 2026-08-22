@@ -222,20 +222,24 @@ class ConfigurationManager(ManagedComponent):
             self.save()
         return self.public_settings()
 
+    def touch_sync(self) -> None:
+        """Mark separately persisted portable state as newer for conflict resolution."""
+        with self._lock:
+            self._config.sync.version += 1
+            self._config.sync.updated_at = datetime.now(timezone.utc).isoformat()
+            self.save()
+
     def sync_payloads(self) -> dict[str, dict[str, Any]]:
         """Split portable account preferences from machine-specific settings."""
         value = self.public_settings()
         appearance = value["appearance"]
-        account_appearance = {
-            key: appearance[key]
-            for key in ("theme", "reduced_motion", "high_contrast", "ui_scale", "text_scale")
-        }
+        account_appearance = {key: appearance[key] for key in (
+            "theme", "background_fit", "background_blur", "background_opacity",
+            "reduced_motion", "high_contrast", "ui_scale", "text_scale",
+        )}
         device_appearance = {
             key: appearance[key]
-            for key in (
-                "background_type", "background_path", "background_fit", "background_blur",
-                "background_opacity", "logo_path",
-            )
+            for key in ("background_type", "background_path", "logo_path")
         }
         envelope = {"version": value["sync"]["version"], "updated_at": value["sync"]["updated_at"]}
         return {
@@ -245,6 +249,15 @@ class ConfigurationManager(ManagedComponent):
                     "language": value["language"],
                     "assistant": value["assistant"],
                     "appearance": account_appearance,
+                    "clock": value["clock"],
+                    "ghost": {
+                        key: value["ghost"][key]
+                        for key in ("enabled", "always_on_top", "click_through", "size", "opacity")
+                    },
+                    "voice": {
+                        key: value["voice"][key]
+                        for key in ("profile", "tts_rate", "tts_volume", "barge_in")
+                    },
                     "privacy": value["privacy"],
                 },
             },
@@ -252,15 +265,44 @@ class ConfigurationManager(ManagedComponent):
                 **envelope,
                 "settings": {
                     "performance": value["performance"],
-                    "ghost": value["ghost"],
+                    "ghost": {
+                        "position_x": value["ghost"]["position_x"],
+                        "position_y": value["ghost"]["position_y"],
+                    },
                     "audio": value["audio"],
-                    "voice": value["voice"],
+                    "voice": {
+                        "tts_voice_id": value["voice"]["tts_voice_id"],
+                        "tts_output_device_id": value["voice"]["tts_output_device_id"],
+                    },
                     "appearance": device_appearance,
-                    "clock": value["clock"],
                     "startup": value["startup"],
                 },
             },
         }
+
+    def apply_sync_payloads(self, account: dict[str, Any], device: dict[str, Any]) -> dict[str, Any]:
+        """Merge validated cloud envelopes while retaining unsynchronized local fields."""
+        current = self.public_settings()
+        for envelope in (account, device):
+            settings = envelope.get("settings", {})
+            if not isinstance(settings, dict):
+                continue
+            for section_name, section_value in settings.items():
+                if section_name == "launcher" or not isinstance(section_value, dict):
+                    continue
+                section = current.get(section_name)
+                if isinstance(section, dict):
+                    section.update(section_value)
+        versions = [max(0, int(item.get("version", 0))) for item in (account, device)]
+        current["sync"]["version"] = max([current["sync"]["version"], *versions])
+        timestamps = [str(item.get("updated_at")) for item in (account, device) if item.get("updated_at")]
+        if timestamps:
+            current["sync"]["updated_at"] = max(timestamps)
+        updated = self._decode(current)
+        with self._lock:
+            self._config = updated
+            self.save()
+        return self.public_settings()
 
     @staticmethod
     def _decode(data: dict[str, Any]) -> AppConfig:
