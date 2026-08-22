@@ -1,0 +1,111 @@
+name,version,classification,rationale
+altgraph,0.17.5,REMOVE,"Packaging, cosmetic, obsolete, or development-only residue; exclude from production."
+annotated-types,0.7.0,UNKNOWN,No verified Phase 1 owner; keep excluded until a feature and measurement justify it.
+anyio,4.12.0,UNKNOWN,No verified Phase 1 owner; keep excluded until a feature and measurement justify it.
+babel,2.17.0,REMOVE,"Packaging, cosmetic, obsolete, or development-only residue; exclude from production."
+beautifulsoup4,4.14.3,OPTIONAL,Install only with the owning feature or development/benchmark extra.
+blinker,1.9.0,REMOVE,"Packaging, cosmetic, obsolete, or development-only residue; exclude from production."
+bottle,0.13.4,REQUIRED,Used by the selected minimal WebView2 desktop runtime (direct or transitive).
+CacheControl,0.14.4,REPLACE,Legacy coupling or heavy stack; replace with the new provider/stdlib architecture.
+cachetools,6.2.2,REPLACE,Legacy coupling or heavy stack; replace with the new provider/stdlib architecture.
+certifi,2025.11.12,OPTIONAL,Install only with the owning feature or development/benchmark extra.
+cffi,2.0.0,REQUIRED,Used by the selected minimal WebView2 desktop runtime (direct or transitive).
+charset-normalizer,3.4.4,OPTIONAL,Install only with the owning feature or development/benchmark extra.
+click,8.3.1,UNKNOWN,No verified Phase 1 owner; keep excluded until a feature and measurement justify it.
+clr_loader,0.2.8,REQUIRED,Used by the selected minimal WebView2 desktop runtime (direct or transitive).
+colorama,0.4.6,REMOVE,"Packaging, cosmetic, obsolete, or development-only residue; exclude from production."
+comtypes,1.4.13,OPTIONAL,Install only with the owning feature or development/benchmark extra.
+cryptography,46.0.3,OPTIONAL,Install only with the owning feature or development/benchmark extra.
+exceptiongroup,1.3.1,UNKNOWN,No verified Phase 1 owner; keep excluded until a feature and measurement justify it.
+firebase_admin,7.1.0,REPLACE,Legacy coupling or heavy stack; replace with the new provider/stdlib architecture.
+Flask,3.1.2,REPLACE,Legacy coupling or heavy stack; replace with the new provider/stdlib architecture.
+flask-cors,6.0.1,REPLACE,Legacy coupling or heavy stack; replace with the new provider/stdlib architecture.
+google-ai-generativelanguage,0.6.15,REPLACE,Legacy coupling or heavy stack; replace with the new provider/stdlib architecture.
+google-api-core,2.28.1,REPLACE,Legacy coupling or heavy stack; replace with the new provider/stdlib architecture.
+google-api-python-client,2.187.0,REPLACE,Legacy coupling or heavy stack; replace with the new provider/stdlib architecture.
+google-auth,2.43.0,REPLACE,Legacy coupling or heavy stack; replace with the new provider/stdlib architecture.
+google-auth-httplib2,0.2.1,REPLACE,Legacy coupling or heavy stack; replace with the new provider/stdlib architecture.
+google-cloud-core,2.5.0,REPLACE,Legacy coupling or heavy stack; replace with the new provider/stdlib architecture.
+google-cloud-firestore,2.21.0,REPLACE,Legacy coupling or heavy stack; replace with the new provider/stdlib architecture.
+google-cloud-storage,3.6.0,REPLACE,Legacy coupling or heavy stack; replace with the new provider/stdlib architecture.
+google-crc32c,1.7.1,REPLACE,Legacy coupling or heavy stack; replace with the new provider/stdlib architecture.
+google-generativeai,0.8.5,REPLACE,Legacy coupling or heavy stack; replace with the new provider/stdlib architecture.
+google-resumable-media,2.8.0,REPLACE,Legacy coupling or heavy stack; replace with the new provider/stdlib architecture.
+googleapis-common-protos,1.72.0,REPLACE,Legacy coupling or heavy stack; replace with the new provider/stdlib architecture.
+grpcio,1.76.0,REPLACE,Legacy coupling or heavy stack; replace with the new provider/stdlib architecture.
+grpcio-status,1.71.2,REPLACE,Legacy coupling or heavy stack; replace with the new provider/stdlib architecture.
+h11,0.16.0,UNKNOWN,No verified Phase 1 owner; keep excluded until a feature and measurement justify it.
+h2,4.3.0,UNKNOWN,No verified Phase 1 owner; keep excluded until a feature and measurement justify it.
+hpack,4.1.0,UNKNOWN,No verified Phase 1 owner; keep excluded until a feature and measurement justify it.
+httpcore,1.0.9,UNKNOWN,No verified Phase 1 owner; keep excluded until a feature and measurement justify it.
+httplib2,0.31.0,REPLACE,Legacy coupling or heavy stack; replace with the new provider/stdlib architecture.
+httpx,0.28.1,UNKNOWN,No verified Phase 1 owner; keep excluded until a feature and measurement justify it.
+hyperframe,6.1.0,UNKNOWN,No verified Phase 1 owner; keep excluded until a feature and measurement justify it.
+idna,3.11,OPTIONAL,Install only with the owning feature or development/benchmark extra.
+itsdangerous,2.2.0,UNKNOWN,No verified Phase 1 owner; keep excluded until a feature and measurement justify it.
+Jinja2,3.1.6,REPLACE,Legacy coupling or heavy stack; replace with the new provider/stdlib architecture.
+MarkupSafe,3.0.3,REPLACE,Legacy coupling or heavy stack; replace with the new provider/stdlib architecture.
+MouseInfo,0.1.3,REMOVE,"Packaging, cosmetic, obsolete, or development-only residue; exclude from production."
+msgpack,1.1.2,UNKNOWN,No verified Phase 1 owner; keep excluded until a feature and measurement justify it.
+numpy,2.2.6,OPTIONAL,Install only with the owning feature or development/benchmark extra.
+oauthlib,3.3.1,OPTIONAL,Install only with the owning feature or development/benchmark extra.
+packaging,25.0,UNKNOWN,No verified Phase 1 owner; keep excluded until a feature and measurement justify it.
+pefile,2024.8.26,REMOVE,"Packaging, cosmetic, obsolete, or development-only residue; exclude from production."
+pillow,12.0.0,OPTIONAL,Install only with the owning feature or development/benchmark extra.
+pip,25.3,REMOVE,"Packaging, cosmetic, obsolete, or development-only residue; exclude from production."
+proto-plus,1.26.1,UNKNOWN,No verified Phase 1 owner; keep excluded until a feature and measurement justify it.
+protobuf,5.29.5,UNKNOWN,No verified Phase 1 owner; keep excluded until a feature and measurement justify it.
+proxy_tools,0.1.0,REQUIRED,Used by the selected minimal WebView2 desktop runtime (direct or transitive).
+psutil,7.1.3,OPTIONAL,Install only with the owning feature or development/benchmark extra.
+pyarmor,9.2.1,REMOVE,"Packaging, cosmetic, obsolete, or development-only residue; exclude from production."
+pyarmor.cli.core,8.1.0,REMOVE,"Packaging, cosmetic, obsolete, or development-only residue; exclude from production."
+pyasn1,0.6.1,UNKNOWN,No verified Phase 1 owner; keep excluded until a feature and measurement justify it.
+pyasn1_modules,0.4.2,UNKNOWN,No verified Phase 1 owner; keep excluded until a feature and measurement justify it.
+PyAudio,0.2.14,REPLACE,Legacy coupling or heavy stack; replace with the new provider/stdlib architecture.
+PyAutoGUI,0.9.54,REPLACE,Legacy coupling or heavy stack; replace with the new provider/stdlib architecture.
+pycparser,2.23,REQUIRED,Used by the selected minimal WebView2 desktop runtime (direct or transitive).
+pydantic,2.12.5,UNKNOWN,No verified Phase 1 owner; keep excluded until a feature and measurement justify it.
+pydantic_core,2.41.5,UNKNOWN,No verified Phase 1 owner; keep excluded until a feature and measurement justify it.
+PyGetWindow,0.0.9,REPLACE,Legacy coupling or heavy stack; replace with the new provider/stdlib architecture.
+pyinstaller,6.17.0,REMOVE,"Packaging, cosmetic, obsolete, or development-only residue; exclude from production."
+pyinstaller-hooks-contrib,2025.10,REMOVE,"Packaging, cosmetic, obsolete, or development-only residue; exclude from production."
+PyJWT,2.10.1,OPTIONAL,Install only with the owning feature or development/benchmark extra.
+PyMsgBox,2.0.1,REPLACE,Legacy coupling or heavy stack; replace with the new provider/stdlib architecture.
+pyOpenSSL,25.3.0,UNKNOWN,No verified Phase 1 owner; keep excluded until a feature and measurement justify it.
+pyparsing,3.2.5,UNKNOWN,No verified Phase 1 owner; keep excluded until a feature and measurement justify it.
+pyperclip,1.11.0,OPTIONAL,Install only with the owning feature or development/benchmark extra.
+pypiwin32,223,OPTIONAL,Install only with the owning feature or development/benchmark extra.
+PyQt5,5.15.11,REPLACE,Legacy coupling or heavy stack; replace with the new provider/stdlib architecture.
+PyQt5_sip,12.17.1,REPLACE,Legacy coupling or heavy stack; replace with the new provider/stdlib architecture.
+PyQt5-Qt5,5.15.2,REPLACE,Legacy coupling or heavy stack; replace with the new provider/stdlib architecture.
+PyQtWebEngine,5.15.7,REPLACE,Legacy coupling or heavy stack; replace with the new provider/stdlib architecture.
+PyQtWebEngine-Qt5,5.15.2,REPLACE,Legacy coupling or heavy stack; replace with the new provider/stdlib architecture.
+PyRect,0.2.0,REPLACE,Legacy coupling or heavy stack; replace with the new provider/stdlib architecture.
+PyScreeze,1.0.1,REPLACE,Legacy coupling or heavy stack; replace with the new provider/stdlib architecture.
+python-dotenv,1.2.1,OPTIONAL,Install only with the owning feature or development/benchmark extra.
+python-engineio,4.12.3,UNKNOWN,No verified Phase 1 owner; keep excluded until a feature and measurement justify it.
+pythonnet,3.0.5,REQUIRED,Used by the selected minimal WebView2 desktop runtime (direct or transitive).
+pyttsx3,2.99,REPLACE,Legacy coupling or heavy stack; replace with the new provider/stdlib architecture.
+pytweening,1.2.0,REPLACE,Legacy coupling or heavy stack; replace with the new provider/stdlib architecture.
+pywebview,6.1,REQUIRED,Used by the selected minimal WebView2 desktop runtime (direct or transitive).
+pywin32,311,OPTIONAL,Install only with the owning feature or development/benchmark extra.
+pywin32-ctypes,0.2.3,OPTIONAL,Install only with the owning feature or development/benchmark extra.
+requests,2.32.5,OPTIONAL,Install only with the owning feature or development/benchmark extra.
+requests-oauthlib,2.0.0,OPTIONAL,Install only with the owning feature or development/benchmark extra.
+requests-toolbelt,1.0.0,REPLACE,Legacy coupling or heavy stack; replace with the new provider/stdlib architecture.
+rsa,4.9.1,REPLACE,Legacy coupling or heavy stack; replace with the new provider/stdlib architecture.
+setuptools,65.5.0,REMOVE,"Packaging, cosmetic, obsolete, or development-only residue; exclude from production."
+simple-websocket,1.1.0,UNKNOWN,No verified Phase 1 owner; keep excluded until a feature and measurement justify it.
+sounddevice,0.5.3,OPTIONAL,Install only with the owning feature or development/benchmark extra.
+soupsieve,2.8,OPTIONAL,Install only with the owning feature or development/benchmark extra.
+SpeechRecognition,3.14.4,OPTIONAL,Install only with the owning feature or development/benchmark extra.
+tqdm,4.67.1,REMOVE,"Packaging, cosmetic, obsolete, or development-only residue; exclude from production."
+typing_extensions,4.15.0,REQUIRED,Used by the selected minimal WebView2 desktop runtime (direct or transitive).
+typing-inspection,0.4.2,UNKNOWN,No verified Phase 1 owner; keep excluded until a feature and measurement justify it.
+uritemplate,4.2.0,REPLACE,Legacy coupling or heavy stack; replace with the new provider/stdlib architecture.
+urllib3,2.5.0,OPTIONAL,Install only with the owning feature or development/benchmark extra.
+websockets,15.0.1,OPTIONAL,Install only with the owning feature or development/benchmark extra.
+Werkzeug,3.1.4,REPLACE,Legacy coupling or heavy stack; replace with the new provider/stdlib architecture.
+wikipedia,1.4.0,OPTIONAL,Install only with the owning feature or development/benchmark extra.
+wsproto,1.3.2,UNKNOWN,No verified Phase 1 owner; keep excluded until a feature and measurement justify it.
+yt-dlp,2025.11.12,OPTIONAL,Install only with the owning feature or development/benchmark extra.
