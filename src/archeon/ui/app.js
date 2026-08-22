@@ -51,6 +51,7 @@
     document.getElementById("profile-name").textContent = identity.display_name;
     document.getElementById("profile-email").textContent = identity.email || t("guest.local");
     document.getElementById("session-badge").textContent = value.mode === "guest" ? t("session.guest") : t("session.account");
+    document.getElementById("account-open").hidden = value.mode === "guest";
     connectEvents();
     configureVoice();
   }
@@ -84,7 +85,17 @@
     event.preventDefault();
     try {
       const value = await auth("register", {display_name:document.getElementById("register-name").value,email:document.getElementById("register-email").value,password:document.getElementById("register-password").value});
+      if (value.session.pending_confirmation) {
+        showAuthView("login"); authMessage.textContent=t("auth.confirmation_sent"); return;
+      }
       sessionStorage.setItem("archeon_session", value.session_token); enterApplication(value.session);
+    } catch (error) { authError(error); }
+  });
+  document.getElementById("auth-forgot").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    try {
+      await auth("forgot-password", {email:document.getElementById("forgot-email").value});
+      showAuthView("login"); authMessage.textContent=t("auth.recovery_sent");
     } catch (error) { authError(error); }
   });
   document.getElementById("logout-button").addEventListener("click", async () => {
@@ -146,6 +157,26 @@
     if(result.ok)voiceDialog.close();else document.getElementById("voice-model-detail").textContent=result.error||"voice_configuration_error";
   });
   const settingsDialog = document.getElementById("settings-dialog");
+  const accountDialog = document.getElementById("account-dialog");
+  const accountMessage = document.getElementById("account-message");
+  document.getElementById("account-open").addEventListener("click",()=>{
+    document.getElementById("sidebar").classList.remove("open");
+    document.getElementById("account-current-email").textContent=session?.identity.email||"";
+    accountMessage.textContent=""; accountDialog.showModal();
+  });
+  document.getElementById("account-close").addEventListener("click",()=>accountDialog.close());
+  async function updateAccount(operation,payload,successKey){
+    accountMessage.textContent="";
+    try{
+      const value=await auth(operation,payload);
+      if(value.session){sessionStorage.setItem("archeon_session",value.session_token);session=value.session;document.getElementById("profile-email").textContent=session.identity.email;}
+      accountMessage.textContent=t(successKey);
+    }catch(error){authError(error);accountMessage.textContent=authMessage.textContent;authMessage.textContent="";}
+  }
+  document.getElementById("account-change-email").addEventListener("click",()=>updateAccount("change-email",{email:document.getElementById("account-email").value},"account.email_sent"));
+  document.getElementById("account-send-nonce").addEventListener("click",()=>updateAccount("reauthenticate",{},"account.code_sent"));
+  document.getElementById("account-change-password").addEventListener("click",()=>updateAccount("change-password",{password:document.getElementById("account-password").value,nonce:document.getElementById("account-nonce").value},"account.password_changed"));
+  document.getElementById("account-logout-others").addEventListener("click",()=>updateAccount("logout-others",{},"account.others_closed"));
   const languageChoices = ["es","en","pt","fr","de","it","zh","ja","ko","ru","ar","hi"];
   function applySettings(settings) {
     settingsCache = settings;
@@ -244,7 +275,14 @@
     const locale=localStorage.getItem("archeon_locale")||"es";
     document.getElementById("language-select").value=locale;
     await loadLocale(locale); updateClock();
-    if(!sessionToken()) return;
+    if(!sessionToken()) {
+      try {
+        const restored=await auth("restore");
+        sessionStorage.setItem("archeon_session",restored.session_token);
+        enterApplication(restored.session);
+      } catch(_) { /* Offline and first-run both keep the access screen usable. */ }
+      return;
+    }
     try {
       const response=await fetch("/api/session",{headers:headers()});
       const value=await response.json();

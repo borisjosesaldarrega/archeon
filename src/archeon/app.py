@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import os
 import time
 from pathlib import Path
 from threading import RLock
 from typing import Any
 
 from archeon.audio import AudioManager
-from archeon.auth import AuthManager, DevelopmentAuthProvider
+from archeon.auth import AuthManager, SupabaseAuthProvider, WindowsDpapiSessionVault
 from archeon.core.config import ConfigurationManager, default_data_dir
 from archeon.core.events import EventBus
 from archeon.core.lifecycle import LifecycleManager
@@ -25,7 +26,15 @@ from archeon.voice import VoicePipeline
 
 
 class ArcheonApplication:
-    def __init__(self, *, data_dir: Path | None = None, port: int = 0, console_log: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        data_dir: Path | None = None,
+        port: int = 0,
+        console_log: bool = False,
+        auth_provider: Any | None = None,
+        auth_vault: Any | None = None,
+    ) -> None:
         self.data_dir = data_dir or default_data_dir()
         self.logger = configure_logging(self.data_dir / "logs", console=console_log)
         self.events = EventBus()
@@ -35,7 +44,15 @@ class ArcheonApplication:
         self.database = DatabaseManager()
         self.auth = AuthManager(
             self.events,
-            DevelopmentAuthProvider(self.data_dir / "development-auth.json"),
+            auth_provider
+            or SupabaseAuthProvider(
+                os.environ.get("ARCHEON_SUPABASE_URL", "https://rcgipowzivogyqbuwzlv.supabase.co"),
+                os.environ.get(
+                    "ARCHEON_SUPABASE_PUBLISHABLE_KEY",
+                    "sb_publishable_V0kfZlDv6HKNudCl_vObeQ_pRbDU1RU",
+                ),
+            ),
+            auth_vault or WindowsDpapiSessionVault(self.data_dir / "secure" / "auth-session.dpapi"),
         )
         self.audio = AudioManager(self.events)
         self.media = MediaEngine(
@@ -300,6 +317,33 @@ class ArcheonApplication:
                     str(payload.get("password", "")),
                     str(payload.get("display_name", "")),
                 )
+            elif operation == "restore":
+                session = self.auth.restore()
+                if session is None:
+                    return {"ok": False, "error": "session_unavailable"}
+            elif operation == "refresh":
+                session = self.auth.refresh(session_token)
+            elif operation == "forgot-password":
+                self.auth.forgot_password(str(payload.get("email", "")))
+                return {"ok": True}
+            elif operation == "reauthenticate":
+                self.auth.reauthenticate(session_token)
+                return {"ok": True}
+            elif operation == "change-password":
+                password = str(payload.get("password", ""))
+                if len(password) < 10:
+                    return {"ok": False, "error": "password_too_short"}
+                session = self.auth.update_user(
+                    session_token,
+                    {"password": password, "nonce": str(payload.get("nonce", "")).strip()},
+                )
+            elif operation == "change-email":
+                email = str(payload.get("email", "")).strip()
+                if "@" not in email or len(email) > 254:
+                    return {"ok": False, "error": "invalid_email"}
+                session = self.auth.update_user(session_token, {"email": email})
+            elif operation == "logout-others":
+                return {"ok": self.auth.logout_others(session_token)}
             elif operation == "logout":
                 self.voice.interrupt()
                 self.permissions.clear_session()

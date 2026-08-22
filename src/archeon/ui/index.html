@@ -31,8 +31,9 @@
         <h2 data-i18n="access.login">Iniciar sesión</h2>
         <label><span data-i18n="field.email">Correo electrónico</span><input id="login-email" type="email" autocomplete="username" required></label>
         <label><span data-i18n="field.password">Contraseña</span><input id="login-password" type="password" autocomplete="current-password" required minlength="8"></label>
-        <p class="provider-note"><span data-i18n="auth.dev_provider">Proveedor local de desarrollo</span> · Firebase OFF</p>
+        <p class="provider-note"><span data-i18n="auth.dev_provider">Supabase Auth</span> · DPAPI</p>
         <button class="primary" type="submit" data-i18n="access.login">Iniciar sesión</button>
+        <button class="ghost-action" type="button" data-auth-view="forgot" data-i18n="auth.forgot">Olvidé mi contraseña</button>
       </form>
 
       <form id="auth-register" class="auth-view">
@@ -41,8 +42,16 @@
         <h2 data-i18n="access.register">Registrarse</h2>
         <label><span data-i18n="field.name">Nombre</span><input id="register-name" autocomplete="name" required maxlength="40"></label>
         <label><span data-i18n="field.email">Correo electrónico</span><input id="register-email" type="email" autocomplete="username" required></label>
-        <label><span data-i18n="field.password">Contraseña</span><input id="register-password" type="password" autocomplete="new-password" required minlength="8"></label>
+        <label><span data-i18n="field.password">Contraseña</span><input id="register-password" type="password" autocomplete="new-password" required minlength="10"></label>
         <button class="primary" type="submit" data-i18n="register.create">Crear identidad</button>
+      </form>
+      <form id="auth-forgot" class="auth-view">
+        <button class="back" type="button" data-auth-view="login" aria-label="Volver">←</button>
+        <span class="eyebrow" data-i18n="login.channel">CANAL SEGURO</span>
+        <h2 data-i18n="auth.recover">Recuperar acceso</h2>
+        <label><span data-i18n="field.email">Correo electrónico</span><input id="forgot-email" type="email" autocomplete="email" required></label>
+        <p class="provider-note" data-i18n="auth.recover_note">Recibirás un enlace seguro si la cuenta existe.</p>
+        <button class="primary" type="submit" data-i18n="auth.send_recovery">Enviar recuperación</button>
       </form>
       <p id="auth-message" class="auth-message" role="status"></p>
       <select id="language-select" class="language-select" aria-label="Idioma">
@@ -66,6 +75,7 @@
       <div class="profile"><div class="profile-icon">A</div><strong id="profile-name">ARCHEON</strong><span id="profile-email"></span></div>
       <button id="voice-settings-open" class="menu-item" data-i18n="menu.voice">🎙 Voz y micrófono</button>
       <button id="music-open" class="menu-item" data-i18n="menu.music">♫ Reproductor local</button>
+      <button id="account-open" class="menu-item" data-i18n="menu.account">Cuenta y seguridad</button>
       <button id="settings-open" class="menu-item" data-i18n="menu.settings">⚙ Configuración</button>
       <button id="logout-button" class="menu-item logout" data-i18n="menu.logout">Cerrar sesión</button>
     </aside>
@@ -100,6 +110,24 @@
         <p id="voice-model-detail" class="provider-note"></p>
         <button id="voice-settings-preview" class="outline" type="button" data-i18n="voice.settings.preview">Probar voz</button>
         <button id="voice-settings-save" class="primary" type="button" data-i18n="voice.settings.save">Guardar configuración</button>
+      </form>
+    </dialog>
+
+    <dialog id="account-dialog" class="settings-dialog settings-main">
+      <form method="dialog">
+        <header><div><span class="eyebrow">SUPABASE AUTH</span><h2 data-i18n="account.title">Cuenta y seguridad</h2></div><button id="account-close" type="button" aria-label="Cerrar">×</button></header>
+        <p id="account-current-email" class="provider-note"></p>
+        <div class="settings-grid">
+          <label><span data-i18n="account.new_email">Nuevo correo</span><input id="account-email" type="email" autocomplete="email"></label>
+          <button id="account-change-email" class="outline" type="button" data-i18n="account.change_email">Cambiar correo</button>
+          <label><span data-i18n="account.security_code">Código de seguridad</span><input id="account-nonce" inputmode="numeric" autocomplete="one-time-code" maxlength="10"></label>
+          <button id="account-send-nonce" class="outline" type="button" data-i18n="account.send_code">Enviar código</button>
+          <label><span data-i18n="account.new_password">Nueva contraseña</span><input id="account-password" type="password" autocomplete="new-password" minlength="10"></label>
+          <button id="account-change-password" class="outline" type="button" data-i18n="account.change_password">Cambiar contraseña</button>
+        </div>
+        <p class="provider-note" data-i18n="account.dpapi_note">La sesión se cifra con DPAPI para este usuario de Windows. La contraseña no se almacena.</p>
+        <button id="account-logout-others" class="ghost-action" type="button" data-i18n="account.logout_others">Cerrar otras sesiones</button>
+        <p id="account-message" class="auth-message" role="status"></p>
       </form>
     </dialog>
 

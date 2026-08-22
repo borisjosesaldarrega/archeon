@@ -8,13 +8,20 @@ import urllib.request
 from pathlib import Path
 
 from archeon.app import ArcheonApplication
+from archeon.auth import DevelopmentAuthProvider, MemorySessionVault
 from archeon.ui.server import UI_ROOT
 
 
 class ApplicationUITests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
-        self.application = ArcheonApplication(data_dir=Path(self.temp.name), port=0)
+        data_dir = Path(self.temp.name)
+        self.application = ArcheonApplication(
+            data_dir=data_dir,
+            port=0,
+            auth_provider=DevelopmentAuthProvider(data_dir / "development-auth.json"),
+            auth_vault=MemorySessionVault(),
+        )
         self.application.start()
         self.session_token = self.application.auth.guest().token
 
