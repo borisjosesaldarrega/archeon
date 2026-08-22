@@ -40,6 +40,9 @@ class VoiceTests(unittest.TestCase):
                 self.asserted = (pcm, sample_rate)
                 return "estado del sistema"
 
+            def configure(self, model_path: Path) -> None:
+                self.model_path = model_path
+
             def unload(self) -> None:
                 self.unloaded = True
 
@@ -49,7 +52,7 @@ class VoiceTests(unittest.TestCase):
             def __init__(self) -> None:
                 self.spoken: tuple[str, str] | None = None
 
-            def speak(self, text: str, stop, *, locale: str = "es") -> None:
+            def speak(self, text: str, stop, *, locale: str = "es", **_settings) -> None:
                 self.spoken = (text, locale)
 
         events = EventBus()
@@ -93,6 +96,46 @@ class VoiceTests(unittest.TestCase):
         pipeline.start()
         self.assertFalse(pipeline.status()["available"])
         self.assertFalse(pipeline.start_cycle())
+        pipeline.stop()
+        audio.stop()
+
+    def test_barge_in_audio_is_processed_as_a_followup_turn(self) -> None:
+        class SequencedStt:
+            name = "fake-stt"
+            available = True
+
+            def __init__(self) -> None:
+                self.values = iter(("primera orden", "segunda orden"))
+
+            def configure(self, _path: Path) -> None:
+                pass
+
+            def transcribe(self, _pcm: bytes, _rate: int) -> str:
+                return next(self.values)
+
+            def unload(self) -> None:
+                pass
+
+        events = EventBus()
+        audio = AudioManager(events)
+        commands: list[str] = []
+        pipeline = VoicePipeline(
+            events,
+            audio,
+            lambda text: commands.append(text) or {"ok": True, "message": "respuesta"},
+            Path(tempfile.gettempdir()),
+        )
+        pipeline._stt = SequencedStt()
+        pipeline._capture_utterance = lambda: b"first"
+        followups = iter((b"second", b""))
+        pipeline._speak_with_optional_barge_in = lambda _text, _tts: next(followups)
+        audio.start()
+        pipeline.start()
+        self.assertTrue(pipeline.start_cycle())
+        thread = pipeline._thread
+        self.assertIsNotNone(thread)
+        thread.join(timeout=3.0)
+        self.assertEqual(commands, ["primera orden", "segunda orden"])
         pipeline.stop()
         audio.stop()
 

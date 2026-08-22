@@ -40,6 +40,16 @@ class AudioConfig:
 
 
 @dataclass(slots=True)
+class VoiceConfig:
+    profile: str = "eco"
+    tts_voice_id: str | None = None
+    tts_output_device_id: str | None = None
+    tts_rate: int = 0
+    tts_volume: int = 100
+    barge_in: bool = True
+
+
+@dataclass(slots=True)
 class AppConfig:
     schema_version: int = 1
     locale: str = "es"
@@ -47,6 +57,7 @@ class AppConfig:
     performance: PerformanceConfig = field(default_factory=PerformanceConfig)
     ghost: GhostConfig = field(default_factory=GhostConfig)
     audio: AudioConfig = field(default_factory=AudioConfig)
+    voice: VoiceConfig = field(default_factory=VoiceConfig)
     permissions: dict[str, str] = field(default_factory=dict)
 
 
@@ -133,6 +144,18 @@ class ConfigurationManager(ManagedComponent):
                 input_device_id=data.get("audio", {}).get("input_device_id"),
                 output_device_id=data.get("audio", {}).get("output_device_id"),
             ),
+            voice=VoiceConfig(
+                profile=(
+                    str(data.get("voice", {}).get("profile", "eco")).lower()
+                    if str(data.get("voice", {}).get("profile", "eco")).lower()
+                    in {"eco", "balanced", "performance"}
+                    else "eco"
+                ),
+                tts_voice_id=data.get("voice", {}).get("tts_voice_id"),
+                tts_output_device_id=data.get("voice", {}).get("tts_output_device_id"),
+                tts_rate=max(-10, min(10, int(data.get("voice", {}).get("tts_rate", 0)))),
+                tts_volume=max(0, min(100, int(data.get("voice", {}).get("tts_volume", 100)))),
+                barge_in=bool(data.get("voice", {}).get("barge_in", True)),
+            ),
             permissions={str(key): str(value) for key, value in data.get("permissions", {}).items()},
         )
-

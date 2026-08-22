@@ -103,9 +103,44 @@
     if (detailKey) detailElement.textContent = t(detailKey);
   }
   const postAction = async (action, payload = {}) => (await fetch("/api/action", {method:"POST",headers:headers(),body:JSON.stringify({action,...payload})})).json();
+  const voiceDialog = document.getElementById("voice-settings");
+  function fillSelect(select, items, selected, includeDefault = true) {
+    select.replaceChildren();
+    if (includeDefault) select.add(new Option(t("voice.settings.default"), ""));
+    items.forEach((item) => select.add(new Option(item.name, String(item.id))));
+    select.value = selected || "";
+  }
+  document.getElementById("voice-settings-open").addEventListener("click", async () => {
+    document.getElementById("sidebar").classList.remove("open");
+    const result = await postAction("voice.catalog");
+    if (!result.ok) { document.getElementById("result").textContent=result.error||"voice_catalog_error"; return; }
+    const voice = result.voice, config = voice.configuration;
+    fillSelect(document.getElementById("voice-profile"), voice.profiles.map((id)=>({id,name:id.toUpperCase()})), config.profile, false);
+    fillSelect(document.getElementById("voice-input"), voice.input_devices.map((device)=>({id:device.index,name:device.name})), config.input_device_id);
+    fillSelect(document.getElementById("voice-tts"), voice.tts_voices, config.tts_voice_id);
+    fillSelect(document.getElementById("voice-output"), voice.tts_outputs, config.tts_output_device_id);
+    document.getElementById("voice-rate").value=config.tts_rate;
+    document.getElementById("voice-volume").value=config.tts_volume;
+    document.getElementById("voice-barge").checked=config.barge_in;
+    document.getElementById("voice-model-detail").textContent=`${t("voice.settings.model")}: ${voice.status.model_id} · ${voice.status.capture}`;
+    voiceDialog.showModal();
+  });
+  document.getElementById("voice-settings-close").addEventListener("click",()=>voiceDialog.close());
+  document.getElementById("voice-settings-save").addEventListener("click",async()=>{
+    const result=await postAction("voice.configure",{
+      profile:document.getElementById("voice-profile").value,
+      input_device_id:document.getElementById("voice-input").value,
+      tts_voice_id:document.getElementById("voice-tts").value,
+      tts_output_device_id:document.getElementById("voice-output").value,
+      tts_rate:Number(document.getElementById("voice-rate").value),
+      tts_volume:Number(document.getElementById("voice-volume").value),
+      barge_in:document.getElementById("voice-barge").checked,
+    });
+    if(result.ok)voiceDialog.close();else document.getElementById("voice-model-detail").textContent=result.error||"voice_configuration_error";
+  });
   document.getElementById("ghost-button").addEventListener("click", () => postAction("window.ghost"));
   document.getElementById("voice-button").addEventListener("click", async () => {
-    const stopping = document.body.classList.contains("state-speaking") || document.body.classList.contains("state-listening");
+    const stopping = ["listening","transcribing","thinking","speaking"].some((state)=>document.body.classList.contains(`state-${state}`));
     await postAction(stopping ? "voice.stop" : "voice.listen");
   });
   document.getElementById("menu-button").addEventListener("click", () => document.getElementById("sidebar").classList.add("open"));
@@ -142,7 +177,7 @@
     events.addEventListener("speech.audio.level",(message)=>{const level=JSON.parse(message.data).payload?.level||0;document.querySelectorAll(".amplitude i").forEach((bar,index)=>{bar.style.height=`${5+level*(10+(index%3)*8)}px`;});});
     events.addEventListener("speech.transcription.completed",(message)=>{const text=JSON.parse(message.data).payload?.text||"";document.getElementById("result").textContent=`${t("voice.heard")}: “${text}”`;});
     events.addEventListener("assistant.processing.completed",(message)=>{const payload=JSON.parse(message.data).payload||{};document.getElementById("result").textContent=payload.message||"";});
-    events.addEventListener("assistant.speaking.ended",()=>setState("idle","state.ready"));
+    events.addEventListener("assistant.speaking.ended",()=>{if(!document.body.classList.contains("state-listening"))setState("idle","state.ready");});
     events.addEventListener("voice.cycle.completed",()=>setState("idle","state.ready"));
     events.addEventListener("voice.cycle.cancelled",()=>setState("idle","state.ready"));
     events.addEventListener("voice.cycle.error",(message)=>{const error=JSON.parse(message.data).payload?.error||"voice_error";document.getElementById("result").textContent=`${t("state.error")}: ${messages[`error.${error}`]||error}`;setState("error","state.error_detail");});

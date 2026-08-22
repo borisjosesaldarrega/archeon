@@ -25,8 +25,8 @@ class WasapiSharedCapture:
         if wasapi is None:
             return []
         return [
-            dict(device)
-            for device in sd.query_devices()
+            dict(device) | {"index": index}
+            for index, device in enumerate(sd.query_devices())
             if device["hostapi"] == wasapi and device["max_input_channels"] > 0
         ]
 

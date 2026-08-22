@@ -192,6 +192,10 @@ class UIServer(ManagedComponent):
                 content_type = mimetypes.guess_type(file_path.name)[0] or "application/octet-stream"
                 self.send_response(HTTPStatus.OK)
                 self._security_headers(content_type, len(body))
+                # UI files must update as one version after an application upgrade.
+                # They are local and small, so revalidation is cheaper than a mixed,
+                # stale HTML/JavaScript interface.
+                self.send_header("Cache-Control", "no-cache, must-revalidate")
                 self.end_headers()
                 self.wfile.write(body)
 

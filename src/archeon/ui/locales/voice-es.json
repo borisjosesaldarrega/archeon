@@ -1,6 +1,18 @@
 {
   "voice.ready": "PULSA PARA HABLAR · VOSK LOCAL",
   "voice.heard": "Escuché",
+  "voice.settings.eyebrow": "SISTEMA DE VOZ",
+  "voice.settings.title": "Audio y voz",
+  "voice.settings.profile": "Perfil",
+  "voice.settings.microphone": "Micrófono WASAPI compartido",
+  "voice.settings.tts_voice": "Voz de respuesta",
+  "voice.settings.output": "Salida TTS",
+  "voice.settings.rate": "Velocidad",
+  "voice.settings.volume": "Volumen",
+  "voice.settings.barge": "Permitir interrupción mientras habla",
+  "voice.settings.save": "Guardar configuración",
+  "voice.settings.default": "Predeterminado de Windows",
+  "voice.settings.model": "Modelo efectivo",
   "error.no_speech_detected": "No detecté voz",
   "error.empty_transcription": "No pude entender la frase",
   "error.vosk_model_missing": "Falta el modelo local de voz"

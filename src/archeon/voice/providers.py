@@ -5,7 +5,34 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from threading import Event, RLock
-from typing import Any
+from typing import Any, Protocol
+
+
+class SpeechToTextProvider(Protocol):
+    name: str
+
+    @property
+    def available(self) -> bool: ...
+    def configure(self, model_path: Path) -> None: ...
+    def transcribe(self, pcm: bytes, sample_rate: int) -> str: ...
+    def unload(self) -> None: ...
+
+
+class TextToSpeechProvider(Protocol):
+    name: str
+
+    def speak(
+        self,
+        text: str,
+        stop: Event,
+        *,
+        locale: str = "es",
+        voice_id: str | None = None,
+        output_device_id: str | None = None,
+        rate: int | None = None,
+        volume: int | None = None,
+    ) -> None: ...
+    def stop(self) -> None: ...
 
 
 class VoskSpeechToText:
@@ -15,6 +42,12 @@ class VoskSpeechToText:
         self._model_path = model_path
         self._model: Any = None
         self._lock = RLock()
+
+    def configure(self, model_path: Path) -> None:
+        with self._lock:
+            if model_path != self._model_path:
+                self._model = None
+                self._model_path = model_path
 
     @property
     def available(self) -> bool:
@@ -62,26 +95,62 @@ class SapiTextToSpeech:
         finally:
             comtypes.CoUninitialize()
 
-    def speak(self, text: str, stop: Event, *, locale: str = "es") -> None:
+    @staticmethod
+    def outputs() -> list[dict[str, str]]:
         import comtypes
         import comtypes.client
 
         comtypes.CoInitialize()
         try:
             voice = comtypes.client.CreateObject("SAPI.SpVoice")
-            voice.Rate = self.rate
-            voice.Volume = self.volume
+            return [
+                {"id": item.Id, "name": item.GetDescription()}
+                for item in voice.GetAudioOutputs()
+            ]
+        finally:
+            comtypes.CoUninitialize()
+
+    def speak(
+        self,
+        text: str,
+        stop: Event,
+        *,
+        locale: str = "es",
+        voice_id: str | None = None,
+        output_device_id: str | None = None,
+        rate: int | None = None,
+        volume: int | None = None,
+    ) -> None:
+        import comtypes
+        import comtypes.client
+
+        comtypes.CoInitialize()
+        try:
+            voice = comtypes.client.CreateObject("SAPI.SpVoice")
+            voice.Rate = self.rate if rate is None else max(-10, min(10, int(rate)))
+            voice.Volume = self.volume if volume is None else max(0, min(100, int(volume)))
             language = "Spanish" if locale.lower().startswith("es") else "English"
             matching_voice = next(
                 (
                     candidate
                     for candidate in voice.GetVoices()
-                    if language.casefold() in candidate.GetDescription().casefold()
+                    if candidate.Id == voice_id
                 ),
+                None,
+            ) if voice_id else next(
+                (candidate for candidate in voice.GetVoices() if language.casefold() in candidate.GetDescription().casefold()),
                 None,
             )
             if matching_voice is not None:
                 voice.Voice = matching_voice
+            if output_device_id:
+                matching_output = next(
+                    (candidate for candidate in voice.GetAudioOutputs() if candidate.Id == output_device_id),
+                    None,
+                )
+                if matching_output is None:
+                    raise RuntimeError("selected_tts_output_unavailable")
+                voice.AudioOutput = matching_output
             with self._lock:
                 self._voice = voice
             voice.Speak(text, 1)

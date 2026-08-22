@@ -46,14 +46,22 @@ class ArcheonApplication:
         self.plugins = PluginManager(self.events, self.data_dir / "plugins")
         self.system = DeviceSystemEngine(self.tools)
         self.orchestrator = Orchestrator(self.events, self.tools)
-        model_path = Path(__file__).resolve().parents[2] / "models" / "vosk-model-small-es-0.42"
+        models_root = Path(__file__).resolve().parents[2] / "models"
         self.voice = VoicePipeline(
             self.events,
             self.audio,
             self.handle_command,
-            model_path,
+            models_root,
             input_device_provider=lambda: self.configuration.config.audio.input_device_id,
             locale_provider=lambda: self.configuration.config.locale,
+            profile_provider=lambda: self.configuration.config.voice.profile,
+            tts_config_provider=lambda: {
+                "voice_id": self.configuration.config.voice.tts_voice_id,
+                "output_device_id": self.configuration.config.voice.tts_output_device_id,
+                "rate": self.configuration.config.voice.tts_rate,
+                "volume": self.configuration.config.voice.tts_volume,
+            },
+            barge_in_provider=lambda: self.configuration.config.voice.barge_in,
         )
         self.ui_server = UIServer(
             self.events,
@@ -150,6 +158,56 @@ class ArcheonApplication:
         if action == "voice.stop":
             self.voice.interrupt()
             return {"ok": True}
+        if action == "voice.catalog":
+            try:
+                catalog = self.voice.catalog()
+                catalog["configuration"] = {
+                    "profile": self.configuration.config.voice.profile,
+                    "input_device_id": self.configuration.config.audio.input_device_id,
+                    "tts_voice_id": self.configuration.config.voice.tts_voice_id,
+                    "tts_output_device_id": self.configuration.config.voice.tts_output_device_id,
+                    "tts_rate": self.configuration.config.voice.tts_rate,
+                    "tts_volume": self.configuration.config.voice.tts_volume,
+                    "barge_in": self.configuration.config.voice.barge_in,
+                }
+                return {"ok": True, "voice": catalog}
+            except (OSError, ValueError, RuntimeError) as error:
+                return {"ok": False, "error": str(error)}
+        if action == "voice.configure":
+            try:
+                if self.voice.busy:
+                    raise RuntimeError("voice_busy")
+                catalog = self.voice.catalog()
+                profile = str(payload.get("profile", "eco")).lower()
+                if profile not in catalog["profiles"]:
+                    raise ValueError("invalid_voice_profile")
+                input_id = payload.get("input_device_id") or None
+                voice_id = payload.get("tts_voice_id") or None
+                output_id = payload.get("tts_output_device_id") or None
+                if input_id is not None and str(input_id) not in {
+                    str(device.get("index")) for device in catalog["input_devices"]
+                }:
+                    raise ValueError("invalid_input_device")
+                if voice_id is not None and voice_id not in {
+                    voice["id"] for voice in catalog["tts_voices"]
+                }:
+                    raise ValueError("invalid_tts_voice")
+                if output_id is not None and output_id not in {
+                    output["id"] for output in catalog["tts_outputs"]
+                }:
+                    raise ValueError("invalid_tts_output")
+                self.configuration.config.voice.profile = profile
+                self.configuration.config.audio.input_device_id = str(input_id) if input_id is not None else None
+                self.configuration.config.voice.tts_voice_id = voice_id
+                self.configuration.config.voice.tts_output_device_id = output_id
+                self.configuration.config.voice.tts_rate = max(-10, min(10, int(payload.get("tts_rate", 0))))
+                self.configuration.config.voice.tts_volume = max(0, min(100, int(payload.get("tts_volume", 100))))
+                self.configuration.config.voice.barge_in = bool(payload.get("barge_in", True))
+                self.configuration.save()
+                self.events.publish("voice.configuration.changed", source="application")
+                return {"ok": True, "voice": self.voice.status()}
+            except (OSError, ValueError, RuntimeError) as error:
+                return {"ok": False, "error": str(error)}
         try:
             if action == "media.load":
                 paths = payload.get("paths")

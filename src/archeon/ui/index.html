@@ -60,7 +60,7 @@
     <aside id="sidebar" class="sidebar">
       <button id="close-menu" class="close-button" aria-label="Cerrar">×</button>
       <div class="profile"><div class="profile-icon">A</div><strong id="profile-name">ARCHEON</strong><span id="profile-email"></span></div>
-      <button class="menu-item" data-i18n="menu.voice">🎙 Voz y micrófono</button>
+      <button id="voice-settings-open" class="menu-item" data-i18n="menu.voice">🎙 Voz y micrófono</button>
       <button id="music-open" class="menu-item" data-i18n="menu.music">♫ Reproductor local</button>
       <button class="menu-item" data-i18n="menu.settings">⚙ Configuración</button>
       <button id="logout-button" class="menu-item logout" data-i18n="menu.logout">Cerrar sesión</button>
@@ -82,6 +82,21 @@
       <form id="command-form"><input id="command-input" maxlength="2000" autocomplete="off" data-i18n-placeholder="command.placeholder" placeholder="Escribe una orden local"><button data-i18n="command.run">Ejecutar</button></form>
       <pre id="result" aria-live="polite"></pre>
     </section>
+
+    <dialog id="voice-settings" class="settings-dialog">
+      <form id="voice-settings-form" method="dialog">
+        <header><div><span class="eyebrow" data-i18n="voice.settings.eyebrow">SISTEMA DE VOZ</span><h2 data-i18n="voice.settings.title">Audio y voz</h2></div><button id="voice-settings-close" type="button" aria-label="Cerrar">×</button></header>
+        <label><span data-i18n="voice.settings.profile">Perfil</span><select id="voice-profile"></select></label>
+        <label><span data-i18n="voice.settings.microphone">Micrófono WASAPI compartido</span><select id="voice-input"></select></label>
+        <label><span data-i18n="voice.settings.tts_voice">Voz de respuesta</span><select id="voice-tts"></select></label>
+        <label><span data-i18n="voice.settings.output">Salida TTS</span><select id="voice-output"></select></label>
+        <label><span data-i18n="voice.settings.rate">Velocidad</span><input id="voice-rate" type="range" min="-10" max="10" value="0"></label>
+        <label><span data-i18n="voice.settings.volume">Volumen</span><input id="voice-volume" type="range" min="0" max="100" value="100"></label>
+        <label class="check-row"><input id="voice-barge" type="checkbox"><span data-i18n="voice.settings.barge">Permitir interrupción mientras habla</span></label>
+        <p id="voice-model-detail" class="provider-note"></p>
+        <button id="voice-settings-save" class="primary" type="button" data-i18n="voice.settings.save">Guardar configuración</button>
+      </form>
+    </dialog>
 
     <section id="music-panel" class="music-widget">
       <div class="track-copy"><strong id="track-title" data-i18n="music.none">Sin reproducción activa</strong><span id="track-artist"></span></div>

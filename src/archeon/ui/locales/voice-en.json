@@ -1,6 +1,18 @@
 {
   "voice.ready": "PRESS TO SPEAK · LOCAL VOSK",
   "voice.heard": "I heard",
+  "voice.settings.eyebrow": "VOICE SYSTEM",
+  "voice.settings.title": "Audio and voice",
+  "voice.settings.profile": "Profile",
+  "voice.settings.microphone": "Shared WASAPI microphone",
+  "voice.settings.tts_voice": "Response voice",
+  "voice.settings.output": "TTS output",
+  "voice.settings.rate": "Rate",
+  "voice.settings.volume": "Volume",
+  "voice.settings.barge": "Allow interruption while speaking",
+  "voice.settings.save": "Save configuration",
+  "voice.settings.default": "Windows default",
+  "voice.settings.model": "Effective model",
   "error.no_speech_detected": "No speech was detected",
   "error.empty_transcription": "I could not understand the phrase",
   "error.vosk_model_missing": "The local voice model is missing"

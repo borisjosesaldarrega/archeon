@@ -88,6 +88,11 @@ class ApplicationUITests(unittest.TestCase):
         self.assertTrue((UI_ROOT / "locales" / "es.json").is_file())
         self.assertTrue((UI_ROOT / "locales" / "en.json").is_file())
 
+    def test_ui_assets_cannot_mix_versions_from_browser_cache(self) -> None:
+        with self.request("/app.js") as response:
+            response.read()
+            self.assertEqual(response.headers["Cache-Control"], "no-cache, must-revalidate")
+
     def test_music_events_are_real_actions(self) -> None:
         subscription = self.application.events.subscribe("music.volume.changed")
         with self.request("/api/action", body={"action": "media.volume", "volume": 0.35}) as response:
@@ -96,6 +101,40 @@ class ApplicationUITests(unittest.TestCase):
         self.assertEqual(event.type, "music.volume.changed")
         self.assertEqual(event.payload["volume"], 0.35)
         subscription.close()
+
+    def test_voice_configuration_is_validated_and_persisted(self) -> None:
+        catalog = {
+            "profiles": ["eco", "balanced", "performance"],
+            "input_devices": [{"index": 28, "name": "Shared microphone"}],
+            "tts_voices": [{"id": "voice-es", "name": "Spanish voice"}],
+            "tts_outputs": [{"id": "output-1", "name": "Speakers"}],
+            "status": self.application.voice.status(),
+        }
+        original_catalog = self.application.voice.catalog
+        self.application.voice.catalog = lambda: catalog
+        try:
+            with self.request(
+                "/api/action",
+                body={
+                    "action": "voice.configure",
+                    "profile": "balanced",
+                    "input_device_id": "28",
+                    "tts_voice_id": "voice-es",
+                    "tts_output_device_id": "output-1",
+                    "tts_rate": 2,
+                    "tts_volume": 72,
+                    "barge_in": False,
+                },
+            ) as response:
+                payload = json.load(response)
+        finally:
+            self.application.voice.catalog = original_catalog
+        self.assertTrue(payload["ok"])
+        config = json.loads((Path(self.temp.name) / "config.json").read_text(encoding="utf-8"))
+        self.assertEqual(config["voice"]["profile"], "balanced")
+        self.assertEqual(config["audio"]["input_device_id"], "28")
+        self.assertEqual(config["voice"]["tts_output_device_id"], "output-1")
+        self.assertFalse(config["voice"]["barge_in"])
 
     def test_guest_session_is_local_and_logout_invalidates_it(self) -> None:
         with self.request("/api/auth/guest", body={}) as response:
