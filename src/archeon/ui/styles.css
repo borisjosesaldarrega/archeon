@@ -46,12 +46,12 @@ button { cursor: pointer; }
 .state-paused #core-art { animation-play-state: paused; }
 
 .music-panel, .command-panel { width: min(720px, 94vw); justify-self: center; background: var(--panel); border: 1px solid #132d36; border-radius: 14px; }
-.music-panel { display: none; align-items: center; justify-content: space-between; padding: 12px 16px; margin-bottom: 12px; box-shadow: 0 12px 40px rgba(0,0,0,.28); }
-.music-panel.active { display: flex; }
+.music-panel { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; margin-bottom: 12px; box-shadow: 0 12px 40px rgba(0,0,0,.28); }
+.music-panel.active { border-color: #146d69; }
 .track-copy { display: grid; gap: 4px; }
 .track-copy strong { color: var(--accent-2); font-size: 13px; }
 .track-copy span { color: var(--muted); font-size: 11px; }
-.media-controls button { border: 0; background: transparent; color: #547078; }
+.media-controls button { border: 0; background: transparent; color: var(--accent); padding: 7px 9px; }
 .command-panel { padding: 15px 16px; }
 .command-panel label { display: block; margin-bottom: 8px; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .16em; }
 .command-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
@@ -75,4 +75,3 @@ button { cursor: pointer; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; }
 }
-

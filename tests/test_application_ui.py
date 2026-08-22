@@ -61,6 +61,15 @@ class ApplicationUITests(unittest.TestCase):
         javascript = (UI_ROOT / "app.js").read_text(encoding="utf-8")
         self.assertIn("EventSource", javascript)
         self.assertNotIn("setInterval", javascript)
+        html = (UI_ROOT / "index.html").read_text(encoding="utf-8")
+        self.assertIn('preload="none"', html)
+
+    def test_music_events_are_real_actions(self) -> None:
+        subscription = self.application.events.subscribe("music.*")
+        with self.request("/api/action", body={"action": "music.started"}) as response:
+            self.assertTrue(json.load(response)["ok"])
+        self.assertEqual(subscription.get(timeout=0.2).type, "music.started")
+        subscription.close()
 
     def test_server_stops_its_thread(self) -> None:
         self.assertTrue(self.application.ui_server.thread_alive)

@@ -29,6 +29,25 @@
     postAction("window.main");
   });
 
+  const audio = document.getElementById("music-audio");
+  document.getElementById("music-play")?.addEventListener("click", async () => {
+    if (!audio) return;
+    await audio.play();
+    await postAction("music.started");
+  });
+  document.getElementById("music-pause")?.addEventListener("click", async () => {
+    audio?.pause();
+    await postAction("music.paused");
+  });
+  document.getElementById("music-stop")?.addEventListener("click", async () => {
+    if (audio) {
+      audio.pause();
+      audio.currentTime = 0;
+    }
+    await postAction("music.stopped");
+  });
+  audio?.addEventListener("ended", () => postAction("music.stopped"));
+
   document.getElementById("command-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const input = document.getElementById("command-input");
@@ -56,8 +75,8 @@
     const event = JSON.parse(message.data);
     const payload = event.payload || {};
     if (payload.artwork_url && art) art.src = payload.artwork_url;
-    if (title) title.textContent = payload.title || "Reproduciendo";
-    if (artist) artist.textContent = payload.artist || "";
+    if (title) title.textContent = payload.title || "Pulso de ARCHEON";
+    if (artist) artist.textContent = payload.artist || "Audio local bajo demanda";
     musicPanel?.classList.add("active");
     musicPanel?.setAttribute("aria-hidden", "false");
     setState("music");
@@ -67,8 +86,8 @@
   events.addEventListener("music.stopped", () => {
     if (art) art.src = "/logo_asitente.png";
     musicPanel?.classList.remove("active");
-    musicPanel?.setAttribute("aria-hidden", "true");
+    if (title) title.textContent = "Sin reproducción activa";
+    if (artist) artist.textContent = "";
     setState("idle");
   });
 })();
-

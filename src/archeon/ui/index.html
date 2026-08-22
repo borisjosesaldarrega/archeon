@@ -23,9 +23,14 @@
       <p id="assistant-state" class="state-label">EN LÍNEA</p>
       <p class="substate">CORE LOCAL · MÓDULOS PESADOS SUSPENDIDOS</p>
     </section>
-    <section id="music-panel" class="music-panel" aria-hidden="true">
+    <section id="music-panel" class="music-panel" aria-label="Reproductor local">
       <div class="track-copy"><strong id="track-title">Sin reproducción activa</strong><span id="track-artist"></span></div>
-      <div class="media-controls"><button type="button" disabled>◀</button><button type="button" disabled>▶</button><button type="button" disabled>▶▶</button></div>
+      <div class="media-controls">
+        <button id="music-stop" type="button" aria-label="Detener">■</button>
+        <button id="music-play" type="button" aria-label="Reproducir">▶</button>
+        <button id="music-pause" type="button" aria-label="Pausar">Ⅱ</button>
+      </div>
+      <audio id="music-audio" preload="none" src="/archeon-audio.mp3"></audio>
     </section>
     <section class="command-panel">
       <form id="command-form">
@@ -42,4 +47,3 @@
   <script src="/app.js"></script>
 </body>
 </html>
-

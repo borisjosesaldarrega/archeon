@@ -105,6 +105,14 @@ class ArcheonApplication:
         if action == "app.exit":
             self.events.publish("ui.window.exit", source="application")
             return {"ok": True}
+        if action in {"music.started", "music.paused", "music.stopped"}:
+            self.events.publish(
+                action,
+                {"title": "Pulso de ARCHEON", "artist": "Audio local bajo demanda"},
+                source="application",
+            )
+            log_event(self.logger, action)
+            return {"ok": True}
         return {"ok": False, "error": f"unknown action: {action}"}
 
     def health(self) -> dict[str, Any]:

@@ -1,10 +1,11 @@
-"""Optional WebView2 desktop host with a real independent Ghost window."""
+"""Optional WebView2 desktop host with a lazy independent Ghost window."""
 
 from __future__ import annotations
 
 from queue import Empty
 from threading import Event as ThreadEvent
 from threading import Thread, Timer
+from typing import Any
 
 from archeon.core.config import AppConfig
 from archeon.core.events import EventBus
@@ -23,7 +24,22 @@ class DesktopHost:
         self._stopping = ThreadEvent()
         self._bridge: Thread | None = None
 
-    def run(self, *, initial_mode: str = "main", auto_exit_seconds: float | None = None) -> None:
+    def run(
+        self,
+        *,
+        initial_mode: str = "main",
+        auto_exit_seconds: float | None = None,
+        benchmark_music: bool = False,
+    ) -> None:
+        if initial_mode == "ghost":
+            from archeon.ui.ghost_native import NativeGhostHost
+
+            outcome = NativeGhostHost(self._events, self._config.ghost).run(
+                auto_exit_seconds=auto_exit_seconds
+            )
+            if outcome == "main":
+                self.run(initial_mode="main", auto_exit_seconds=auto_exit_seconds)
+            return
         try:
             import webview
         except ImportError as error:
@@ -31,56 +47,50 @@ class DesktopHost:
                 "pywebview is not installed; install the `desktop` optional dependency"
             ) from error
 
-        main_window = webview.create_window(
-            "ARCHEON",
-            f"{self._base_url}/?token={self._token}",
-            width=1100,
-            height=720,
-            min_size=(760, 520),
-            background_color="#05070a",
-            text_select=True,
-        )
-        size = self._config.ghost.size
-        ghost_window = webview.create_window(
-            "ARCHEON Orb",
-            f"{self._base_url}/ghost?token={self._token}",
-            width=size,
-            height=size,
-            min_size=(64, 64),
-            frameless=True,
-            easy_drag=True,
-            on_top=self._config.ghost.always_on_top,
-            transparent=True,
-            background_color="#000000",
-            hidden=True,
-            text_select=False,
-        )
+        windows: dict[str, Any] = {}
+        transition_to_ghost = ThreadEvent()
 
         def destroy_all(*_: object) -> None:
             self._stopping.set()
-            for window in (ghost_window, main_window):
+            for window in tuple(windows.values()):
                 try:
                     window.destroy()
                 except Exception:
                     pass
 
+        def make_main():
+            window = windows.get("main")
+            if window is None:
+                window = webview.create_window(
+                    "ARCHEON",
+                    f"{self._base_url}/?token={self._token}",
+                    width=1100,
+                    height=720,
+                    min_size=(760, 520),
+                    background_color="#05070a",
+                    text_select=True,
+                )
+                windows["main"] = window
+                window.events.closed += destroy_all
+            return window
+
         def bridge() -> None:
             subscription = self._events.subscribe("ui.window.*", max_queue=16)
             try:
-                if initial_mode == "ghost":
-                    main_window.hide()
-                    ghost_window.show()
                 while not self._stopping.is_set():
                     try:
                         event = subscription.get(timeout=0.5)
                     except Empty:
                         continue
                     if event.type == "ui.window.ghost":
-                        main_window.hide()
-                        ghost_window.show()
+                        transition_to_ghost.set()
+                        destroy_all()
                     elif event.type == "ui.window.main":
-                        ghost_window.hide()
-                        main_window.show()
+                        main = make_main()
+                        ghost = windows.get("ghost")
+                        if ghost is not None:
+                            ghost.hide()
+                        main.show()
                     elif event.type == "ui.window.exit":
                         destroy_all()
             except RuntimeError:
@@ -99,7 +109,11 @@ class DesktopHost:
                 timer.daemon = True
                 timer.start()
 
-        main_window.events.closed += destroy_all
+        initial_window = make_main()
+        if benchmark_music and initial_mode == "main":
+            initial_window.events.loaded += lambda: initial_window.evaluate_js(
+                "document.getElementById('music-play').click()"
+            )
         try:
             webview.start(startup, gui="edgechromium", debug=False, private_mode=False)
         finally:
@@ -110,3 +124,6 @@ class DesktopHost:
                 self._bridge.join(timeout=3.0)
                 if self._bridge.is_alive():
                     raise RuntimeError("window bridge thread did not stop")
+        if transition_to_ghost.is_set():
+            self._stopping.clear()
+            self.run(initial_mode="ghost", auto_exit_seconds=auto_exit_seconds)

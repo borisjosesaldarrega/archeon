@@ -22,6 +22,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--data-dir", type=Path, default=None)
     parser.add_argument("--port", type=int, default=0)
     parser.add_argument("--console-log", action="store_true")
+    parser.add_argument("--benchmark-music", action="store_true", help=argparse.SUPPRESS)
     return parser
 
 
@@ -62,7 +63,11 @@ def main(argv: list[str] | None = None) -> int:
                 token=application.ui_server.token,
                 config=application.configuration.config,
             )
-            host.run(initial_mode="ghost" if args.ghost else "main", auto_exit_seconds=args.auto_exit)
+            host.run(
+                initial_mode="ghost" if args.ghost else "main",
+                auto_exit_seconds=args.auto_exit,
+                benchmark_music=args.benchmark_music,
+            )
     except KeyboardInterrupt:
         pass
     except DesktopUnavailable as error:
@@ -75,4 +80,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

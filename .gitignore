@@ -21,6 +21,8 @@ guest_config.json
 __pycache__/
 *.py[cod]
 *.pyd
+*.egg-info/
+/src/archeon/ui/chime.wav
 
 # Build products and bundled third-party binaries
 build/
