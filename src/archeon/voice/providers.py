@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import multiprocessing
 from pathlib import Path
 from threading import Event, RLock
 from typing import Any, Protocol
@@ -37,18 +38,41 @@ class TextToSpeechProvider(Protocol):
     def stop(self) -> None: ...
 
 
+def _vosk_transcribe_worker(
+    sender: Any,
+    model_path: str,
+    pcm: bytes,
+    sample_rate: int,
+) -> None:
+    """Load Vosk in a disposable process so all native memory is reclaimed."""
+    try:
+        from vosk import KaldiRecognizer, Model, SetLogLevel
+
+        SetLogLevel(-1)
+        model = Model(model_path)
+        recognizer = KaldiRecognizer(model, sample_rate)
+        recognizer.AcceptWaveform(pcm)
+        sender.send((True, str(json.loads(recognizer.FinalResult()).get("text", "")).strip()))
+    except BaseException as error:  # The parent must always receive a bounded failure.
+        try:
+            sender.send((False, f"{type(error).__name__}: {error}"))
+        except (BrokenPipeError, EOFError, OSError):
+            pass
+    finally:
+        sender.close()
+
+
 class VoskSpeechToText:
     name = "vosk-small-es"
 
     def __init__(self, model_path: Path) -> None:
         self._model_path = model_path
-        self._model: Any = None
+        self._worker: Any = None
         self._lock = RLock()
 
     def configure(self, model_path: Path) -> None:
         with self._lock:
             if model_path != self._model_path:
-                self._model = None
                 self._model_path = model_path
 
     @property
@@ -58,24 +82,53 @@ class VoskSpeechToText:
     @property
     def loaded(self) -> bool:
         with self._lock:
-            return self._model is not None
+            return bool(self._worker and self._worker.is_alive())
 
     def transcribe(self, pcm: bytes, sample_rate: int) -> str:
         if not self.available:
             raise RuntimeError("vosk_model_missing")
+        context = multiprocessing.get_context("spawn")
+        receiver, sender = context.Pipe(duplex=False)
+        worker = context.Process(
+            target=_vosk_transcribe_worker,
+            args=(sender, str(self._model_path), pcm, sample_rate),
+            name="archeon-vosk-on-demand",
+            daemon=True,
+        )
         with self._lock:
-            from vosk import KaldiRecognizer, Model, SetLogLevel
-
-            SetLogLevel(-1)
-            if self._model is None:
-                self._model = Model(str(self._model_path))
-            recognizer = KaldiRecognizer(self._model, sample_rate)
-            recognizer.AcceptWaveform(pcm)
-            return str(json.loads(recognizer.FinalResult()).get("text", "")).strip()
+            self._worker = worker
+        started = False
+        try:
+            worker.start()
+            started = True
+            sender.close()
+            if not receiver.poll(45.0):
+                raise RuntimeError("vosk_transcription_timeout")
+            ok, value = receiver.recv()
+            if not ok:
+                raise RuntimeError(f"vosk_transcription_failed: {value}")
+            return str(value)
+        except (EOFError, OSError) as error:
+            raise RuntimeError("vosk_transcription_worker_failed") from error
+        finally:
+            sender.close()
+            receiver.close()
+            if started and worker.is_alive():
+                worker.terminate()
+            if started:
+                worker.join(timeout=5.0)
+            if started and worker.is_alive():
+                worker.kill()
+                worker.join(timeout=2.0)
+            with self._lock:
+                if self._worker is worker:
+                    self._worker = None
 
     def unload(self) -> None:
         with self._lock:
-            self._model = None
+            worker = self._worker
+        if worker and worker.is_alive():
+            worker.terminate()
 
 
 class SapiTextToSpeech:

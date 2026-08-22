@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import ctypes
 import json
+import multiprocessing
 import time
 import webbrowser
 from pathlib import Path
@@ -53,11 +54,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--benchmark-launcher", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--benchmark-radial", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--benchmark-background", choices=("image", "video"), help=argparse.SUPPRESS)
+    parser.add_argument("--benchmark-stt-worker", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--allow-multiple", action="store_true", help=argparse.SUPPRESS)
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
+    multiprocessing.freeze_support()
     args = build_parser().parse_args(argv)
     instance = SingleInstance()
     if not args.allow_multiple and not instance.acquire():
@@ -68,6 +71,15 @@ def main(argv: list[str] | None = None) -> int:
         console_log=args.console_log,
     )
     application.start()
+    if args.benchmark_stt_worker:
+        started = time.perf_counter()
+        provider = application.voice._stt  # Deliberately private: diagnostic-only path.
+        provider.transcribe(bytes(32_000), 16_000)
+        (application.data_dir / "stt-worker-smoke.json").write_text(json.dumps({
+            "ok": True,
+            "elapsed_ms": round((time.perf_counter() - started) * 1_000, 3),
+            "model_loaded_after": provider.loaded,
+        }), encoding="utf-8")
     if args.benchmark_background:
         visual = (
             Path(__file__).resolve().parent / "ui" / "logo_asitente.png"

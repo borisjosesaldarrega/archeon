@@ -26,7 +26,7 @@ def main() -> int:
     parser.add_argument("--wake-name", default="Archeon")
     args = parser.parse_args()
     duration = max(10.0, args.duration_hours * 3600)
-    samples: list[tuple[float, float]] = []
+    samples: list[tuple[float, float, float]] = []
     counters = {"detections": 0, "rejected_candidates": 0, "errors": 0}
     with tempfile.TemporaryDirectory(prefix="archeon-wake-soak-") as temporary:
         app = ArcheonApplication(data_dir=Path(temporary), port=0)
@@ -43,8 +43,10 @@ def main() -> int:
         try:
             while time.monotonic() - started < duration:
                 cpu = process.cpu_percent(interval=max(0.1, args.sample_seconds))
-                rss = process.memory_info().rss / 1_048_576
-                samples.append((cpu, rss))
+                memory = process.memory_info()
+                rss = memory.rss / 1_048_576
+                private = getattr(memory, "private", memory.vms) / 1_048_576
+                samples.append((cpu, rss, private))
                 for name, subscription in subscriptions.items():
                     while True:
                         try:
@@ -64,6 +66,10 @@ def main() -> int:
         "cpu_percent_peak": round(max(v[0] for v in samples), 3) if samples else None,
         "ram_mb_avg": round(mean(v[1] for v in samples), 3) if samples else None,
         "ram_mb_peak": round(max(v[1] for v in samples), 3) if samples else None,
+        "ram_mb_growth": round(samples[-1][1] - samples[0][1], 3) if samples else None,
+        "private_mb_avg": round(mean(v[2] for v in samples), 3) if samples else None,
+        "private_mb_peak": round(max(v[2] for v in samples), 3) if samples else None,
+        "private_mb_growth": round(samples[-1][2] - samples[0][2], 3) if samples else None,
         **counters,
         "manual_note": "Label spoken trials separately to calculate false negatives; ambient detections are false-positive candidates.",
     }
