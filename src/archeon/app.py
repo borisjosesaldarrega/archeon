@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -20,6 +21,8 @@ from archeon.core.secure_logging import close_logger, configure_logging, log_eve
 from archeon.core.tools import ToolEngine
 from archeon.database import DatabaseManager
 from archeon.media import MediaEngine, MediaState
+from archeon.media.discovery import MediaDiscovery
+from archeon.search import BraveSearchProvider, SearchEngine
 from archeon.launcher import LauncherEngine
 from archeon.plugins import PluginManager
 from archeon.system import DeviceSystemEngine
@@ -65,6 +68,11 @@ class ArcheonApplication:
             self.data_dir,
             output_device_provider=lambda: self.configuration.config.audio.output_device_id,
         )
+        self.media_discovery = MediaDiscovery(
+            self.data_dir,
+            jamendo_client_id=os.environ.get("ARCHEON_JAMENDO_CLIENT_ID"),
+        )
+        self.search = SearchEngine(BraveSearchProvider(os.environ.get("ARCHEON_BRAVE_SEARCH_API_KEY")))
         self.launcher = LauncherEngine(self.data_dir)
         self.settings_sync = SupabaseSettingsSync(supabase_url, supabase_key, self.data_dir)
         self.plugins = PluginManager(self.events, self.data_dir / "plugins")
@@ -153,6 +161,24 @@ class ArcheonApplication:
             close_logger(self.logger)
 
     def handle_command(self, text: str) -> dict[str, Any]:
+        media_match = re.match(
+            r"^(?:archeon[\s,]+)?(?:pon(?:me)?|reproduce|toca|play)\s+(?:la\s+canci[oó]n\s+)?(.+?)\s*[.!?]*$",
+            text.strip(),
+            flags=re.IGNORECASE,
+        )
+        if media_match:
+            found = self.handle_action("media.search", {"query": media_match.group(1), "online": True, "limit": 1})
+            results = found.get("results") if found.get("ok") else None
+            if not results:
+                error = found.get("error") or "media_not_found"
+                return {"ok": False, "message": str(error), "data": found, "correlation_id": None}
+            played = self.handle_action("media.play_result", {"id": results[0]["id"]})
+            return {
+                "ok": bool(played.get("ok")),
+                "message": f"Reproduciendo {results[0]['title']}" if played.get("ok") else str(played.get("error")),
+                "data": played,
+                "correlation_id": None,
+            }
         launch_item = self.launcher.command_item(text)
         if launch_item is not None:
             try:
@@ -237,6 +263,63 @@ class ArcheonApplication:
                 return {"ok": True}
             except ValueError as error:
                 return {"ok": False, "error": str(error)}
+        if action == "media.index":
+            decision = self.permissions.evaluate(
+                ("filesystem.read.media",), risk=RiskLevel.READ_ONLY, action=action,
+                reason="Crear o actualizar el índice local de música en ubicaciones conocidas.",
+                confirmer=lambda _request: True,
+            )
+            if not decision.allowed:
+                return {"ok": False, "error": decision.reason}
+            roots = payload.get("roots")
+            if roots is not None and (not isinstance(roots, list) or not all(isinstance(root, str) for root in roots)):
+                return {"ok": False, "error": "invalid_media_roots"}
+            try:
+                return {"ok": True, "index": self.media_discovery.refresh([Path(root) for root in roots] if roots else None)}
+            except OSError as error:
+                return {"ok": False, "error": str(error)}
+        if action == "media.search":
+            query = str(payload.get("query", ""))
+            limit = max(1, min(20, int(payload.get("limit", 10))))
+            quality = str(payload.get("quality", "auto"))
+            try:
+                result = self.media_discovery.search(query, allow_online=False, limit=limit, quality=quality)
+                if result["results"] or not bool(payload.get("online")):
+                    return {"ok": True, **result}
+                decision = self.permissions.evaluate(
+                    ("network.media",), risk=RiskLevel.READ_ONLY, action=action,
+                    reason="Buscar la canción solicitada en un proveedor online configurado.",
+                    confirmer=lambda _request: True,
+                )
+                if not decision.allowed:
+                    return {"ok": False, "error": decision.reason, **result}
+                return {"ok": True, **self.media_discovery.search(query, allow_online=True, limit=limit, quality=quality)}
+            except (OSError, RuntimeError, ValueError) as error:
+                return {"ok": False, "error": str(error), "results": []}
+        if action == "media.play_result":
+            try:
+                result = self.media_discovery.resolve(str(payload.get("id", "")))
+                self.media.load_results([result])
+                return {"ok": True, "media": self.media.play()}
+            except (OSError, RuntimeError, ValueError) as error:
+                return {"ok": False, "error": str(error)}
+        if action == "search.web":
+            decision = self.permissions.evaluate(
+                ("network.search",), risk=RiskLevel.READ_ONLY, action=action,
+                reason="Consultar información actual y conservar las fuentes temporales.",
+                confirmer=lambda _request: True,
+            )
+            if not decision.allowed:
+                return {"ok": False, "error": decision.reason}
+            try:
+                results = self.search.search(
+                    str(payload.get("query", "")), limit=max(1, min(10, int(payload.get("limit", 5)))),
+                    language=str(payload.get("language") or self.configuration.config.language.interface),
+                    freshness=str(payload["freshness"]) if payload.get("freshness") else None,
+                )
+                return {"ok": True, "provider": self.search.provider.name, "results": results}
+            except (OSError, RuntimeError, ValueError) as error:
+                return {"ok": False, "error": str(error), "results": []}
         if action == "launcher.alias":
             try:
                 self.launcher.set_alias(str(payload.get("alias", "")), str(payload.get("id", "")))

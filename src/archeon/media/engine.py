@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import urllib.parse
 from collections.abc import Callable
 from enum import StrEnum
 from pathlib import Path
@@ -14,6 +15,7 @@ from archeon.core.lifecycle import ManagedComponent
 
 from .backend import MiniAudioPlayer
 from .metadata import MetadataReader, Track
+from .providers import MediaSearchResult
 
 
 class MediaState(StrEnum):
@@ -98,6 +100,37 @@ class MediaEngine(ManagedComponent):
         self._events.publish("music.queue.changed", self.status(), source="media")
         return [track.public() for track in tracks]
 
+    def load_results(self, results: list[MediaSearchResult], *, append: bool = False) -> list[dict[str, object]]:
+        if not results or len(results) > self.MAX_QUEUE:
+            raise ValueError("invalid_media_queue")
+        if all(result.local_path for result in results):
+            return self.load([Path(result.local_path or "") for result in results], append=append)
+        tracks = [
+            Track(
+                id=result.id, path=result.stream_url or "", title=result.title,
+                artist=result.artist, album=result.album, duration_ms=result.duration_ms,
+                artwork_url=result.artwork_url, provider=result.provider,
+                source_url=result.source_url, license_url=result.license_url,
+            )
+            for result in results
+            if result.stream_url
+        ]
+        if not tracks:
+            raise ValueError("media_results_not_playable")
+        with self._lock:
+            if append:
+                if len(self._queue) + len(tracks) > self.MAX_QUEUE:
+                    raise ValueError("media_queue_too_large")
+                self._queue.extend(tracks)
+                if self._index < 0:
+                    self._index = 0
+            else:
+                self._stop_locked(clear_queue=True, publish=False)
+                self._queue = tracks
+                self._index = 0
+        self._events.publish("music.queue.changed", self.status(), source="media")
+        return [track.public() for track in tracks]
+
     def play(self, index: int | None = None) -> dict[str, Any]:
         with self._lock:
             if index is not None:
@@ -145,6 +178,8 @@ class MediaEngine(ManagedComponent):
             track = self.current
             if track is None:
                 raise RuntimeError("media_queue_empty")
+            if isinstance(track.path, str) and urllib.parse.urlparse(track.path).scheme and position_ms:
+                raise RuntimeError("online_media_seek_unavailable")
             target = max(0, min(int(position_ms), track.duration_ms))
             was_playing = self._state is MediaState.PLAYING
             self._open_current_locked(target, start=was_playing)

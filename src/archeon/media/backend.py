@@ -2,10 +2,114 @@
 
 from __future__ import annotations
 
+import urllib.parse
+import urllib.request
 from array import array
 from collections.abc import Callable
-from threading import RLock
+from threading import Condition, Event, RLock, Thread, current_thread
 from typing import Any
+
+
+class BufferedHttpSource:
+    """Small bounded producer/consumer buffer for finite HTTPS audio streams."""
+
+    BLOCK_SIZE = 16 * 1024
+    BUFFER_SIZE = 256 * 1024
+    ffi_handle = None
+    error_in_readcallback = None
+
+    def __init__(self, url: str) -> None:
+        parsed = urllib.parse.urlparse(url)
+        if parsed.scheme != "https" or not parsed.hostname:
+            raise ValueError("invalid_online_media_url")
+        self.url = url
+        self._initial_host = parsed.hostname.casefold()
+        self.content_type = ""
+        self._condition = Condition()
+        self._buffer = bytearray()
+        self._ready = Event()
+        self._stop = False
+        self._eof = False
+        self._error: Exception | None = None
+        self._response: Any = None
+        self._thread = Thread(target=self._download, name="archeon-media-http", daemon=False)
+        self._thread.start()
+        if not self._ready.wait(8):
+            self.close()
+            raise TimeoutError("online_media_connect_timeout")
+        if self._error is not None:
+            error = self._error
+            self.close()
+            raise RuntimeError("online_media_connect_failed") from error
+
+    def _download(self) -> None:
+        try:
+            request = urllib.request.Request(self.url, headers={"Accept": "audio/*", "User-Agent": "ARCHEON/10"})
+            with urllib.request.urlopen(request, timeout=10) as response:
+                self._response = response
+                final_url = response.geturl() if hasattr(response, "geturl") else self.url
+                final = urllib.parse.urlparse(final_url)
+                final_host = (final.hostname or "").casefold()
+                trusted = (
+                    final.scheme == "https"
+                    and (
+                        final_host == self._initial_host
+                        or (self._initial_host.endswith(".jamendo.com") and final_host.endswith(".jamendo.com"))
+                    )
+                )
+                if not trusted:
+                    raise ValueError("online_media_redirect_not_trusted")
+                self.content_type = (response.headers.get("Content-Type") or "").partition(";")[0].strip().casefold()
+                self._ready.set()
+                while True:
+                    with self._condition:
+                        self._condition.wait_for(lambda: self._stop or len(self._buffer) < self.BUFFER_SIZE)
+                        if self._stop:
+                            return
+                    chunk = response.read(self.BLOCK_SIZE)
+                    if not chunk:
+                        with self._condition:
+                            self._eof = True
+                            self._condition.notify_all()
+                        return
+                    with self._condition:
+                        self._buffer.extend(chunk)
+                        self._condition.notify_all()
+        except Exception as error:
+            with self._condition:
+                self._error = error
+                self._eof = True
+                self._ready.set()
+                self._condition.notify_all()
+        finally:
+            self._response = None
+
+    def read(self, num_bytes: int) -> bytes:
+        with self._condition:
+            self._condition.wait_for(lambda: self._buffer or self._eof or self._stop)
+            if self._error is not None and not self._buffer:
+                raise self._error
+            size = min(max(0, num_bytes), len(self._buffer))
+            chunk = bytes(self._buffer[:size])
+            del self._buffer[:size]
+            self._condition.notify_all()
+            return chunk
+
+    def seek(self, _offset: int, _origin: object) -> bool:
+        return False
+
+    def close(self) -> None:
+        with self._condition:
+            self._stop = True
+            self._condition.notify_all()
+        response = self._response
+        if response is not None:
+            try:
+                response.close()
+            except OSError:
+                pass
+        if self._thread.is_alive() and self._thread is not current_thread():
+            self._thread.join(timeout=2)
 
 
 class MiniAudioPlayer:
@@ -17,6 +121,7 @@ class MiniAudioPlayer:
         self._device: Any = None
         self._stream: Any = None
         self._source: Any = None
+        self._network_source: BufferedHttpSource | None = None
         self._lock = RLock()
         self._volume = 0.7
         self._position_frames = 0
@@ -49,13 +154,31 @@ class MiniAudioPlayer:
 
         self.close()
         seek_frame = max(0, round(seek_ms * self.SAMPLE_RATE / 1000))
-        source = miniaudio.stream_file(
-            path,
-            output_format=miniaudio.SampleFormat.SIGNED16,
-            nchannels=self.CHANNELS,
-            sample_rate=self.SAMPLE_RATE,
-            seek_frame=seek_frame,
-        )
+        network_source = None
+        if urllib.parse.urlparse(path).scheme:
+            network_source = BufferedHttpSource(path)
+            formats = {
+                "audio/mpeg": miniaudio.FileFormat.MP3,
+                "audio/flac": miniaudio.FileFormat.FLAC,
+                "audio/ogg": miniaudio.FileFormat.VORBIS,
+                "application/ogg": miniaudio.FileFormat.VORBIS,
+            }
+            source = miniaudio.stream_any(
+                network_source,
+                source_format=formats.get(network_source.content_type, miniaudio.FileFormat.UNKNOWN),
+                output_format=miniaudio.SampleFormat.SIGNED16,
+                nchannels=self.CHANNELS,
+                sample_rate=self.SAMPLE_RATE,
+                seek_frame=seek_frame,
+            )
+        else:
+            source = miniaudio.stream_file(
+                path,
+                output_format=miniaudio.SampleFormat.SIGNED16,
+                nchannels=self.CHANNELS,
+                sample_rate=self.SAMPLE_RATE,
+                seek_frame=seek_frame,
+            )
 
         def progress(frames: int) -> None:
             with self._lock:
@@ -95,6 +218,7 @@ class MiniAudioPlayer:
             self._seek_frame = seek_frame
             self._position_frames = 0
             self._source = source
+            self._network_source = network_source
             self._stream = stream
             self._device = device
 
@@ -116,10 +240,11 @@ class MiniAudioPlayer:
 
     def close(self) -> None:
         with self._lock:
-            device, source = self._device, self._source
+            device, source, network_source = self._device, self._source, self._network_source
             self._device = None
             self._stream = None
             self._source = None
+            self._network_source = None
             self.path = None
         if device is not None:
             device.close()
@@ -128,3 +253,5 @@ class MiniAudioPlayer:
                 source.close()
             except (AttributeError, RuntimeError):
                 pass
+        if network_source is not None:
+            network_source.close()

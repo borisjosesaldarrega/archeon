@@ -8,6 +8,7 @@ from pathlib import Path
 
 from archeon.core.events import EventBus
 from archeon.media import MediaEngine, MediaState
+from archeon.media.providers import MediaSearchResult
 from archeon.ui.server import UI_ROOT
 
 
@@ -96,6 +97,20 @@ class MediaEngineTests(unittest.TestCase):
         while self.media.status()["queue_index"] != 1 and time.monotonic() < deadline:
             time.sleep(0.01)
         self.assertEqual(self.media.status()["queue_index"], 1)
+
+    def test_online_result_uses_same_queue_without_loading_at_idle(self) -> None:
+        result = MediaSearchResult(
+            id="jamendo:12", provider="jamendo", title="Online track", artist="Artist",
+            stream_url="https://prod-1.storage.jamendo.com/track.mp3",
+            artwork_url="https://usercontent.jamendo.com/cover.jpg",
+            source_url="https://www.jamendo.com/track/12",
+        )
+        tracks = self.media.load_results([result])
+        self.assertEqual(tracks[0]["provider"], "jamendo")
+        self.media.play()
+        self.assertEqual(FakePlayer.instances[-1].path, result.stream_url)
+        with self.assertRaisesRegex(RuntimeError, "seek_unavailable"):
+            self.media.seek(1000)
 
 
 if __name__ == "__main__":

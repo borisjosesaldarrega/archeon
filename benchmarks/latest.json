@@ -1,176 +1,24 @@
 {
-  "timestamp": "2026-08-22T08:12:05.065651+00:00",
+  "timestamp": "2026-08-22T08:24:49.709101+00:00",
   "platform": "win32",
   "python": "3.12.13",
   "executable": "C:\\Users\\salda\\Desktop\\asistente\\.venv-archeon\\Scripts\\python.exe",
   "scenarios": [
     {
       "scenario": "headless",
-      "core_startup_ms": 12.314,
+      "core_startup_ms": 16.1,
       "ui_process_ready_ms": null,
-      "ram_idle_mb_avg": 30.602,
-      "ram_idle_mb_peak": 30.602,
-      "private_memory_mb_avg": 18.625,
-      "private_memory_mb_peak": 18.625,
+      "ram_idle_mb_avg": 30.711,
+      "ram_idle_mb_peak": 30.711,
+      "private_memory_mb_avg": 18.613,
+      "private_memory_mb_peak": 18.613,
       "cpu_idle_percent_avg": 0.0,
       "cpu_idle_percent_peak": 0.0,
       "process_count": 1,
       "process_names": [
         "python.exe"
       ],
-      "process_details": [
-        {
-          "name": "python.exe",
-          "role": "main",
-          "private_mb": 18.625,
-          "rss_mb": 30.602,
-          "webview": false
-        }
-      ],
-      "launcher_scan_ms": null,
-      "launcher_items": null,
-      "music_started_confirmed": null,
-      "gpu_percent": 0.0,
-      "gpu_note": "One Windows GPU Engine sample; summed across ARCHEON engines.",
-      "exit_code": 0,
-      "stderr": "",
-      "stdout_tail": ""
-    },
-    {
-      "scenario": "full_ui",
-      "core_startup_ms": 10.894,
-      "ui_process_ready_ms": 884.298,
-      "ram_idle_mb_avg": 498.654,
-      "ram_idle_mb_peak": 500.207,
-      "private_memory_mb_avg": 363.64,
-      "private_memory_mb_peak": 374.297,
-      "cpu_idle_percent_avg": 1.79,
-      "cpu_idle_percent_peak": 31.3,
-      "process_count": 7,
-      "process_names": [
-        "msedgewebview2.exe",
-        "msedgewebview2.exe",
-        "msedgewebview2.exe",
-        "msedgewebview2.exe",
-        "msedgewebview2.exe",
-        "msedgewebview2.exe",
-        "python.exe"
-      ],
-      "process_details": [
-        {
-          "name": "python.exe",
-          "role": "main",
-          "private_mb": 62.973,
-          "rss_mb": 101.98,
-          "webview": false
-        },
-        {
-          "name": "msedgewebview2.exe",
-          "role": "main",
-          "private_mb": 40.66,
-          "rss_mb": 135.055,
-          "webview": true
-        },
-        {
-          "name": "msedgewebview2.exe",
-          "role": "crashpad-handler",
-          "private_mb": 2.523,
-          "rss_mb": 13.758,
-          "webview": true
-        },
-        {
-          "name": "msedgewebview2.exe",
-          "role": "gpu-process",
-          "private_mb": 197.629,
-          "rss_mb": 101.406,
-          "webview": true
-        },
-        {
-          "name": "msedgewebview2.exe",
-          "role": "utility",
-          "private_mb": 13.312,
-          "rss_mb": 42.094,
-          "webview": true
-        },
-        {
-          "name": "msedgewebview2.exe",
-          "role": "utility",
-          "private_mb": 8.984,
-          "rss_mb": 22.879,
-          "webview": true
-        },
-        {
-          "name": "msedgewebview2.exe",
-          "role": "renderer",
-          "private_mb": 32.016,
-          "rss_mb": 79.484,
-          "webview": true
-        }
-      ],
-      "launcher_scan_ms": null,
-      "launcher_items": null,
-      "music_started_confirmed": null,
-      "gpu_percent": 0.0,
-      "gpu_note": "One Windows GPU Engine sample; summed across ARCHEON engines.",
-      "exit_code": 0,
-      "stderr": "",
-      "stdout_tail": ""
-    },
-    {
-      "scenario": "ghost",
-      "core_startup_ms": 11.275,
-      "ui_process_ready_ms": null,
-      "ram_idle_mb_avg": 44.867,
-      "ram_idle_mb_peak": 44.867,
-      "private_memory_mb_avg": 24.004,
-      "private_memory_mb_peak": 24.004,
-      "cpu_idle_percent_avg": 0.0,
-      "cpu_idle_percent_peak": 0.0,
-      "process_count": 1,
-      "process_names": [
-        "python.exe"
-      ],
-      "process_details": [
-        {
-          "name": "python.exe",
-          "role": "main",
-          "private_mb": 24.004,
-          "rss_mb": 44.867,
-          "webview": false
-        }
-      ],
-      "launcher_scan_ms": null,
-      "launcher_items": null,
-      "music_started_confirmed": null,
-      "gpu_percent": 0.0,
-      "gpu_note": "One Windows GPU Engine sample; summed across ARCHEON engines.",
-      "exit_code": 0,
-      "stderr": "",
-      "stdout_tail": ""
-    },
-    {
-      "scenario": "ghost_radial",
-      "core_startup_ms": 13.627,
-      "ui_process_ready_ms": null,
-      "ram_idle_mb_avg": 45.672,
-      "ram_idle_mb_peak": 45.672,
-      "private_memory_mb_avg": 24.0,
-      "private_memory_mb_peak": 24.0,
-      "cpu_idle_percent_avg": 0.0,
-      "cpu_idle_percent_peak": 0.0,
-      "process_count": 1,
-      "process_names": [
-        "python.exe"
-      ],
-      "process_details": [
-        {
-          "name": "python.exe",
-          "role": "main",
-          "private_mb": 24.0,
-          "rss_mb": 45.672,
-          "webview": false
-        }
-      ],
+      "process_details": [],
       "launcher_scan_ms": null,
       "launcher_items": null,
       "music_started_confirmed": null,

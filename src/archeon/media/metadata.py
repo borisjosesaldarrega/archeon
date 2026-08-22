@@ -12,12 +12,16 @@ from tempfile import NamedTemporaryFile
 @dataclass(frozen=True, slots=True)
 class Track:
     id: str
-    path: Path
+    path: Path | str
     title: str
     artist: str
     album: str
     duration_ms: int
     artwork_id: str | None = None
+    artwork_url: str | None = None
+    provider: str = "local"
+    source_url: str | None = None
+    license_url: str | None = None
 
     def public(self) -> dict[str, object]:
         return {
@@ -26,7 +30,10 @@ class Track:
             "artist": self.artist,
             "album": self.album,
             "duration_ms": self.duration_ms,
-            "artwork_url": f"/media/art/{self.artwork_id}" if self.artwork_id else None,
+            "artwork_url": f"/media/art/{self.artwork_id}" if self.artwork_id else self.artwork_url,
+            "provider": self.provider,
+            "source_url": self.source_url,
+            "license_url": self.license_url,
         }
 
 
@@ -86,4 +93,3 @@ class MetadataReader:
             return mime, path.read_bytes()
         except OSError:
             return None
-
