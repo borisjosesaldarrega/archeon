@@ -110,6 +110,7 @@
   const musicPanel = document.getElementById("music-panel");
   const title = document.getElementById("track-title");
   const artist = document.getElementById("track-artist");
+  const album = document.getElementById("track-album");
   function setState(state, detailKey) {
     ["idle","listening","transcribing","thinking","executing","speaking","music","paused","error"].forEach((name) => document.body.classList.remove(`state-${name}`));
     document.body.classList.add(`state-${state}`);
@@ -204,6 +205,8 @@
     document.body.classList.toggle("theme-light", resolved === "light");
     document.body.classList.toggle("reduce-motion", Boolean(settings.appearance?.reduced_motion));
     document.body.classList.toggle("high-contrast", Boolean(settings.appearance?.high_contrast));
+    document.body.dataset.performance = settings.performance?.profile || "eco";
+    document.body.dataset.idleAnimation = String(Boolean(settings.performance?.idle_animation));
     document.documentElement.style.fontSize=`${settings.appearance?.text_scale||100}%`;
     document.body.style.zoom=String((settings.appearance?.ui_scale||100)/100);
     const curtain=document.querySelector(".background-curtain");
@@ -214,7 +217,7 @@
     curtain.style.opacity=String((appearance.background_opacity??100)/100);
     curtain.style.backgroundSize=appearance.background_fit||"cover";
     if(appearance.background_type==="image"&&appearance.background_path){video.pause();video.removeAttribute("src");video.hidden=true;curtain.style.backgroundImage=`linear-gradient(rgba(0,0,0,.22),rgba(0,0,0,.36)),url("${resource}")`;}
-    else if(appearance.background_type==="video"&&appearance.background_path){curtain.style.backgroundImage="linear-gradient(rgba(0,0,0,.2),rgba(0,0,0,.34))";video.style.objectFit=appearance.background_fit||"cover";if(video.src!==new URL(resource,location.href).href)video.src=resource;video.hidden=false;video.play().catch(()=>{});}
+    else if(appearance.background_type==="video"&&appearance.background_path){curtain.style.backgroundImage="linear-gradient(rgba(0,0,0,.2),rgba(0,0,0,.34))";video.style.objectFit=appearance.background_fit||"cover";if(video.src!==new URL(resource,location.href).href)video.src=resource;video.hidden=false;if((settings.performance?.profile||"eco")==="eco"){const freeze=()=>{try{video.currentTime=.05;}catch(_){}video.pause();};video.readyState>=2?freeze():video.addEventListener("loadeddata",freeze,{once:true});}else video.play().catch(()=>{});}
     else{video.pause();video.removeAttribute("src");video.hidden=true;curtain.style.backgroundImage="";}
     const logo=appearance.logo_path?`/personalization/logo?token=${encodeURIComponent(runtime.token)}&v=${settings.sync?.version||0}`:"/logo_asitente.png";
     document.querySelectorAll("#core-art,.auth-brand img").forEach(node=>{if(!node.closest(".state-music"))node.src=logo;});
@@ -322,19 +325,20 @@
     events.addEventListener("voice.cycle.cancelled",()=>setState("idle","state.ready"));
     events.addEventListener("voice.cycle.error",(message)=>{const error=JSON.parse(message.data).payload?.error||"voice_error";document.getElementById("result").textContent=`${t("state.error")}: ${messages[`error.${error}`]||error}`;setState("error","state.error_detail");});
     events.addEventListener("wake.detected",()=>setState("listening","state.listening_detail"));
-    events.addEventListener("music.started",(message)=>{const payload=JSON.parse(message.data).payload||{};art.classList.add("cover-changing");setTimeout(()=>{art.src=payload.artwork_url?`${payload.artwork_url}?token=${encodeURIComponent(runtime.token)}`:"/logo_asitente.png";art.classList.remove("cover-changing");},120);title.textContent=payload.title||t("music.demo");artist.textContent=payload.artist||t("music.local");document.getElementById("music-seek").max=payload.duration_ms||1;document.getElementById("music-seek").value=0;musicPanel.classList.add("active");setState("music","state.music_detail");});
+    events.addEventListener("music.started",(message)=>{const payload=JSON.parse(message.data).payload||{};art.classList.add("cover-changing");setTimeout(()=>{art.src=payload.artwork_url?`${payload.artwork_url}?token=${encodeURIComponent(runtime.token)}`:"/logo_asitente.png";art.classList.remove("cover-changing");},120);title.textContent=payload.title||t("music.demo");artist.textContent=payload.artist||t("music.local");album.textContent=payload.album||"";document.getElementById("music-seek").max=payload.duration_ms||1;document.getElementById("music-seek").value=0;musicPanel.classList.add("active");musicPanel.setAttribute("aria-hidden","false");setState("music","state.music_detail");});
     events.addEventListener("music.paused",()=>setState("paused","state.paused_detail"));
     events.addEventListener("music.resumed",()=>setState("music","state.music_detail"));
     events.addEventListener("music.seeked",(message)=>{const payload=JSON.parse(message.data).payload||{};document.getElementById("music-seek").value=payload.position_ms||0;});
-    events.addEventListener("music.stopped",()=>{art.src="/logo_asitente.png";musicPanel.classList.remove("active");title.textContent=t("music.none");artist.textContent="";setState("idle","state.ready");});
+    events.addEventListener("music.stopped",()=>{art.src="/logo_asitente.png";musicPanel.classList.remove("active");musicPanel.setAttribute("aria-hidden","true");title.textContent=t("music.none");artist.textContent="";album.textContent="";setState("idle","state.ready");});
   }
 
   function updateClock(){const now=new Date(),clock=settingsCache?.clock||{};document.getElementById("clock-time").textContent=now.toLocaleTimeString(document.documentElement.lang,{hour:"2-digit",minute:"2-digit",second:clock.show_seconds?"2-digit":undefined,hour12:clock.use_24_hour?false:undefined});document.getElementById("clock-date").textContent=now.toLocaleDateString(document.documentElement.lang,{weekday:"long",day:"numeric",month:"long"});const unit=clock.show_seconds?1000:60000;setTimeout(updateClock,unit-(Date.now()%unit));}
   document.getElementById("language-select").addEventListener("change",(event)=>loadLocale(event.target.value));
   document.addEventListener("visibilitychange",()=>{
     const video=document.getElementById("background-video");
+    document.body.classList.toggle("ui-hidden",document.hidden);
     if(document.hidden)video.pause();
-    else if(!video.hidden&&settingsCache?.appearance?.background_type==="video")video.play().catch(()=>{});
+    else if(!video.hidden&&settingsCache?.appearance?.background_type==="video"&&(settingsCache.performance?.profile||"eco")!=="eco")video.play().catch(()=>{});
   });
 
   async function loadCurrentSettings(locale) {

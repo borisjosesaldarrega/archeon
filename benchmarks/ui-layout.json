@@ -1,0 +1,399 @@
+{
+  "timestamp": "2026-08-22T08:15:22.753335+00:00",
+  "scenario": "real_webview_responsive_layout",
+  "results": [
+    {
+      "viewport": {
+        "width": 1008,
+        "height": 561,
+        "devicePixelRatio": 1
+      },
+      "boxes": {
+        "orb": {
+          "left": 403.015625,
+          "top": 113.046875,
+          "right": 604.96875,
+          "bottom": 315,
+          "width": 201.953125,
+          "height": 201.953125
+        },
+        "status": {
+          "left": 381.171875,
+          "top": 321,
+          "right": 626.828125,
+          "bottom": 395,
+          "width": 245.65625,
+          "height": 74
+        },
+        "media": {
+          "left": 204,
+          "top": 401,
+          "right": 804,
+          "bottom": 487,
+          "width": 600,
+          "height": 86
+        },
+        "command": {
+          "left": 124,
+          "top": 493,
+          "right": 884,
+          "bottom": 547,
+          "width": 760,
+          "height": 54
+        }
+      },
+      "checks": {
+        "command_inside": true,
+        "media_inside": true,
+        "settings_inside": true,
+        "launcher_inside": true,
+        "orb_status_clear": true,
+        "status_media_clear": true,
+        "media_command_clear": true
+      },
+      "target": {
+        "width": 1024,
+        "height": 600,
+        "label": "compact"
+      },
+      "ok": true
+    },
+    {
+      "viewport": {
+        "width": 1264,
+        "height": 681,
+        "devicePixelRatio": 1
+      },
+      "boxes": {
+        "orb": {
+          "left": 509.421875,
+          "top": 189.84375,
+          "right": 754.578125,
+          "bottom": 435,
+          "width": 245.15625,
+          "height": 245.15625
+        },
+        "status": {
+          "left": 509.171875,
+          "top": 441,
+          "right": 754.828125,
+          "bottom": 515,
+          "width": 245.65625,
+          "height": 74
+        },
+        "media": {
+          "left": 332,
+          "top": 521,
+          "right": 932,
+          "bottom": 607,
+          "width": 600,
+          "height": 86
+        },
+        "command": {
+          "left": 252,
+          "top": 613,
+          "right": 1012,
+          "bottom": 667,
+          "width": 760,
+          "height": 54
+        }
+      },
+      "checks": {
+        "command_inside": true,
+        "media_inside": true,
+        "settings_inside": true,
+        "launcher_inside": true,
+        "orb_status_clear": true,
+        "status_media_clear": true,
+        "media_command_clear": true
+      },
+      "target": {
+        "width": 1280,
+        "height": 720,
+        "label": "1600x900-at-125pct"
+      },
+      "ok": true
+    },
+    {
+      "viewport": {
+        "width": 1350,
+        "height": 729,
+        "devicePixelRatio": 1
+      },
+      "boxes": {
+        "orb": {
+          "left": 521.90625,
+          "top": 144.015625,
+          "right": 828.078125,
+          "bottom": 450.1875,
+          "width": 306.171875,
+          "height": 306.171875
+        },
+        "status": {
+          "left": 549.171875,
+          "top": 460.015625,
+          "right": 800.828125,
+          "bottom": 540.015625,
+          "width": 251.65625,
+          "height": 80
+        },
+        "media": {
+          "left": 375,
+          "top": 549.84375,
+          "right": 975,
+          "bottom": 641.5,
+          "width": 600,
+          "height": 91.65625
+        },
+        "command": {
+          "left": 295,
+          "top": 651.328125,
+          "right": 1055,
+          "bottom": 709.328125,
+          "width": 760,
+          "height": 58
+        }
+      },
+      "checks": {
+        "command_inside": true,
+        "media_inside": true,
+        "settings_inside": true,
+        "launcher_inside": true,
+        "orb_status_clear": true,
+        "status_media_clear": true,
+        "media_command_clear": true
+      },
+      "target": {
+        "width": 1366,
+        "height": 768,
+        "label": "1366x768"
+      },
+      "ok": true
+    },
+    {
+      "viewport": {
+        "width": 1584,
+        "height": 861,
+        "devicePixelRatio": 1
+      },
+      "boxes": {
+        "orb": {
+          "left": 611.1875,
+          "top": 208.328125,
+          "right": 972.796875,
+          "bottom": 569.9375,
+          "width": 361.609375,
+          "height": 361.609375
+        },
+        "status": {
+          "left": 666.171875,
+          "top": 581.546875,
+          "right": 917.828125,
+          "bottom": 664.546875,
+          "width": 251.65625,
+          "height": 83
+        },
+        "media": {
+          "left": 492,
+          "top": 676.15625,
+          "right": 1092,
+          "bottom": 768.15625,
+          "width": 600,
+          "height": 92
+        },
+        "command": {
+          "left": 412,
+          "top": 779.765625,
+          "right": 1172,
+          "bottom": 837.765625,
+          "width": 760,
+          "height": 58
+        }
+      },
+      "checks": {
+        "command_inside": true,
+        "media_inside": true,
+        "settings_inside": true,
+        "launcher_inside": true,
+        "orb_status_clear": true,
+        "status_media_clear": true,
+        "media_command_clear": true
+      },
+      "target": {
+        "width": 1600,
+        "height": 900,
+        "label": "1600x900"
+      },
+      "ok": true
+    },
+    {
+      "viewport": {
+        "width": 1691,
+        "height": 881,
+        "devicePixelRatio": 1
+      },
+      "boxes": {
+        "orb": {
+          "left": 660.484375,
+          "top": 218.53125,
+          "right": 1030.5,
+          "bottom": 588.546875,
+          "width": 370.015625,
+          "height": 370.015625
+        },
+        "status": {
+          "left": 719.671875,
+          "top": 600.4375,
+          "right": 971.328125,
+          "bottom": 683.4375,
+          "width": 251.65625,
+          "height": 83
+        },
+        "media": {
+          "left": 545.5,
+          "top": 695.328125,
+          "right": 1145.5,
+          "bottom": 787.328125,
+          "width": 600,
+          "height": 92
+        },
+        "command": {
+          "left": 465.5,
+          "top": 799.21875,
+          "right": 1225.5,
+          "bottom": 857.21875,
+          "width": 760,
+          "height": 58
+        }
+      },
+      "checks": {
+        "command_inside": true,
+        "media_inside": true,
+        "settings_inside": true,
+        "launcher_inside": true,
+        "orb_status_clear": true,
+        "status_media_clear": true,
+        "media_command_clear": true
+      },
+      "target": {
+        "width": 1707,
+        "height": 960,
+        "label": "2560x1440-at-150pct"
+      },
+      "ok": true
+    },
+    {
+      "viewport": {
+        "width": 1904,
+        "height": 881,
+        "devicePixelRatio": 1
+      },
+      "boxes": {
+        "orb": {
+          "left": 766.984375,
+          "top": 218.53125,
+          "right": 1137,
+          "bottom": 588.546875,
+          "width": 370.015625,
+          "height": 370.015625
+        },
+        "status": {
+          "left": 826.171875,
+          "top": 600.4375,
+          "right": 1077.828125,
+          "bottom": 683.4375,
+          "width": 251.65625,
+          "height": 83
+        },
+        "media": {
+          "left": 652,
+          "top": 695.328125,
+          "right": 1252,
+          "bottom": 787.328125,
+          "width": 600,
+          "height": 92
+        },
+        "command": {
+          "left": 572,
+          "top": 799.21875,
+          "right": 1332,
+          "bottom": 857.21875,
+          "width": 760,
+          "height": 58
+        }
+      },
+      "checks": {
+        "command_inside": true,
+        "media_inside": true,
+        "settings_inside": true,
+        "launcher_inside": true,
+        "orb_status_clear": true,
+        "status_media_clear": true,
+        "media_command_clear": true
+      },
+      "target": {
+        "width": 1920,
+        "height": 1080,
+        "label": "1920x1080"
+      },
+      "ok": true
+    },
+    {
+      "viewport": {
+        "width": 2544,
+        "height": 881,
+        "devicePixelRatio": 1
+      },
+      "boxes": {
+        "orb": {
+          "left": 1086.984375,
+          "top": 218.53125,
+          "right": 1457,
+          "bottom": 588.546875,
+          "width": 370.015625,
+          "height": 370.015625
+        },
+        "status": {
+          "left": 1146.171875,
+          "top": 600.4375,
+          "right": 1397.828125,
+          "bottom": 683.4375,
+          "width": 251.65625,
+          "height": 83
+        },
+        "media": {
+          "left": 972,
+          "top": 695.328125,
+          "right": 1572,
+          "bottom": 787.328125,
+          "width": 600,
+          "height": 92
+        },
+        "command": {
+          "left": 892,
+          "top": 799.21875,
+          "right": 1652,
+          "bottom": 857.21875,
+          "width": 760,
+          "height": 58
+        }
+      },
+      "checks": {
+        "command_inside": true,
+        "media_inside": true,
+        "settings_inside": true,
+        "launcher_inside": true,
+        "orb_status_clear": true,
+        "status_media_clear": true,
+        "media_command_clear": true
+      },
+      "target": {
+        "width": 2560,
+        "height": 1440,
+        "label": "2560x1440"
+      },
+      "ok": true
+    }
+  ],
+  "ok": true
+}

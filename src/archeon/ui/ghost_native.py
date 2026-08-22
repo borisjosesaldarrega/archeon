@@ -22,6 +22,19 @@ def radial_action_ids(media_state: str) -> tuple[str, ...]:
     return ("open", "listen", "apps", "games", "favorites", "settings")
 
 
+def radial_layout(count: int, center: float, radius: float) -> tuple[tuple[float, float], ...]:
+    """Return evenly distributed native-canvas centers, starting at twelve o'clock."""
+    if count < 1:
+        return ()
+    return tuple(
+        (
+            center + math.cos(-math.pi / 2 + (2 * math.pi * index / count)) * radius,
+            center + math.sin(-math.pi / 2 + (2 * math.pi * index / count)) * radius,
+        )
+        for index in range(count)
+    )
+
+
 class NativeGhostHost:
     def __init__(
         self,
@@ -69,21 +82,36 @@ class NativeGhostHost:
 
         canvas = tk.Canvas(root, width=size, height=size, bg=transparent, highlightthickness=0, cursor="hand2")
         canvas.pack(fill="both", expand=True)
-        ring = canvas.create_oval(4, 4, size - 4, size - 4, outline="#08d9ff", width=2)
+        ring = canvas.create_oval(4, 4, size - 4, size - 4, outline="#08d9ff", width=2, tags=("orb",))
         logo = tk.PhotoImage(file=str(Path(__file__).resolve().parent / "logo_asitente.png"))
         reduction = max(1, max(logo.width(), logo.height()) // max(64, size - 14))
         logo = logo.subsample(reduction, reduction)
-        image_item = canvas.create_image(size // 2, size // 2, image=logo)
-        status_dot = canvas.create_oval(size - 19, size - 19, size - 10, size - 10, fill="#08d9ff", outline="")
-        canvas.create_text(size // 2, size - 12, text=self._display_name, fill="#b9faff", font=("Segoe UI", max(7, size // 15)))
+        image_item = canvas.create_image(size // 2, size // 2, image=logo, tags=("orb",))
+        status_dot = canvas.create_oval(size - 19, size - 19, size - 10, size - 10, fill="#08d9ff", outline="", tags=("orb",))
+        name_item = canvas.create_text(size // 2, size - 12, text=self._display_name, fill="#b9faff", font=("Segoe UI", max(7, size // 15)), tags=("orb",))
 
         outcome = "exit"
         state: dict[str, Any] = {
             "name": "idle", "media": "stopped", "angle": 0,
-            "rotation_job": None, "click_job": None, "frames": None, "frame_index": 0, "photo": logo,
+            "rotation_job": None, "click_job": None, "radial_job": None,
+            "frames": None, "frame_index": 0, "photo": logo,
+            "center": size // 2, "radial_open": False,
         }
         drag = {"x": 0, "y": 0, "moved": False}
-        radial_windows: list[Any] = []
+        radial_items: list[int] = []
+
+        def orb_bounds(inset: int = 4) -> tuple[int, int, int, int]:
+            center = int(state["center"])
+            half = size // 2
+            return center - half + inset, center - half + inset, center + half - inset, center + half - inset
+
+        def position_orb(center: int) -> None:
+            state["center"] = center
+            left, top, right, bottom = orb_bounds()
+            canvas.coords(ring, left, top, right, bottom)
+            canvas.coords(image_item, center, center)
+            canvas.coords(status_dot, right - 15, bottom - 15, right - 6, bottom - 6)
+            canvas.coords(name_item, center, bottom - 8)
 
         def set_color(color: str, width: int = 2) -> None:
             canvas.itemconfigure(ring, outline=color, width=width)
@@ -177,7 +205,7 @@ class NativeGhostHost:
             elif event_type == "speech.audio.level" and state["name"] == "listening":
                 level = max(0.0, min(1.0, float(payload.get("level", 0))))
                 inset = max(1, 4 - round(level * 3))
-                canvas.coords(ring, inset, inset, size - inset, size - inset)
+                canvas.coords(ring, *orb_bounds(inset))
             elif event_type in {"speech.transcription.started", "assistant.processing.started"}:
                 set_state("thinking")
             elif event_type == "assistant.speaking.started":
@@ -206,12 +234,67 @@ class NativeGhostHost:
             outcome = "main"
             root.quit()
 
-        def close_radial() -> None:
-            while radial_windows:
-                try:
-                    radial_windows.pop().destroy()
-                except tk.TclError:
-                    pass
+        def cancel_radial_job() -> None:
+            job = state.get("radial_job")
+            if job is not None:
+                root.after_cancel(job)
+                state["radial_job"] = None
+
+        def radial_window(edge: int, screen_center: tuple[int, int]) -> None:
+            left = round(screen_center[0] - edge / 2)
+            top = round(screen_center[1] - edge / 2)
+            root.geometry(f"{edge}x{edge}+{left}+{top}")
+            canvas.configure(width=edge, height=edge)
+            position_orb(edge // 2)
+
+        def delete_radial_items() -> None:
+            while radial_items:
+                canvas.delete(radial_items.pop())
+
+        def close_radial(*, immediate: bool = False) -> None:
+            if not state["radial_open"] and not radial_items:
+                return
+            cancel_radial_job()
+            state["radial_open"] = False
+            current_center = (
+                root.winfo_x() + int(state["center"]),
+                root.winfo_y() + int(state["center"]),
+            )
+            screen_center = state.pop("radial_origin", current_center)
+            nodes = list(state.get("radial_nodes") or [])
+            tooltip = state.get("radial_tooltip")
+
+            def finish() -> None:
+                delete_radial_items()
+                state["radial_nodes"] = []
+                state["radial_tooltip"] = None
+                radial_window(size, screen_center)
+                state["radial_job"] = None
+
+            if immediate or not nodes:
+                finish()
+                return
+
+            center = float(state["center"])
+            total_steps = 6
+
+            def collapse(step: int = 0) -> None:
+                progress = min(1.0, step / total_steps)
+                for node in nodes:
+                    x = node["x"] + (center - node["x"]) * progress
+                    y = node["y"] + (center - node["y"]) * progress
+                    half = node["half"] * (1.0 - progress * 0.45)
+                    canvas.coords(node["line"], center, center, x, y)
+                    canvas.coords(node["circle"], x - half, y - half, x + half, y + half)
+                    canvas.coords(node["icon"], x, y)
+                if tooltip is not None:
+                    canvas.itemconfigure(tooltip, state="hidden")
+                if step >= total_steps:
+                    finish()
+                else:
+                    state["radial_job"] = root.after(18, collapse, step + 1)
+
+            collapse()
 
         def launcher_menu(category: str, x: int, y: int) -> None:
             result = invoke("launcher.list", {"category": category})
@@ -227,38 +310,102 @@ class NativeGhostHost:
             invoke("media.volume", {"volume": max(0.0, min(1.0, float(current.get("volume", 0.7)) + delta))})
 
         def show_radial() -> None:
-            if radial_windows:
+            if state["radial_open"]:
                 close_radial()
                 return
+            cancel_radial_job()
             action_ids = radial_action_ids(str(state["media"]))
             if "previous" in action_ids:
                 actions = [
-                    ("⏮", lambda *_: invoke("media.previous")),
-                    ("⏯", lambda *_: toggle_media()),
-                    ("⏭", lambda *_: invoke("media.next")),
-                    ("−", lambda *_: volume(-0.1)),
-                    ("+", lambda *_: volume(0.1)),
-                    ("♫", lambda *_: invoke("media.choose")),
-                    ("↗", lambda *_: expand()),
+                    ("⏮", self._text["ghost.previous"], lambda *_: invoke("media.previous")),
+                    ("⏯", self._text["ghost.play_pause"], lambda *_: toggle_media()),
+                    ("⏭", self._text["ghost.next"], lambda *_: invoke("media.next")),
+                    ("−", self._text["ghost.volume_down"], lambda *_: volume(-0.1)),
+                    ("+", self._text["ghost.volume_up"], lambda *_: volume(0.1)),
+                    ("♫", self._text["ghost.choose_music"], lambda *_: invoke("media.choose")),
+                    ("↗", self._text["ghost.open"], lambda *_: expand()),
                 ]
             else:
                 actions = [
-                    ("↗", lambda *_: expand()),
-                    ("🎙", lambda *_: invoke("voice.listen")),
-                    ("A", lambda x, y: launcher_menu("app", x, y)),
-                    ("G", lambda x, y: launcher_menu("game", x, y)),
-                    ("★", lambda x, y: launcher_menu("favorites", x, y)),
-                    ("⚙", lambda *_: expand()),
+                    ("↗", self._text["ghost.open"], lambda *_: expand()),
+                    ("●", self._text["ghost.listen"], lambda *_: invoke("voice.listen")),
+                    ("A", self._text["ghost.apps"], lambda x, y: launcher_menu("app", x, y)),
+                    ("G", self._text["ghost.games"], lambda x, y: launcher_menu("game", x, y)),
+                    ("★", self._text["ghost.favorites"], lambda x, y: launcher_menu("favorites", x, y)),
+                    ("⚙", self._text["ghost.settings"], lambda *_: expand()),
                 ]
-            center_x, center_y = root.winfo_x() + size // 2, root.winfo_y() + size // 2
-            radius, edge = max(76, size), 42
-            for index, (label, callback) in enumerate(actions):
-                angle = -math.pi / 2 + (2 * math.pi * index / len(actions))
-                x, y = int(center_x + math.cos(angle) * radius - edge / 2), int(center_y + math.sin(angle) * radius - edge / 2)
-                window = tk.Toplevel(root); window.overrideredirect(True); window.attributes("-topmost", True); window.geometry(f"{edge}x{edge}+{x}+{y}"); window.configure(bg="#010101")
-                button = tk.Button(window, text=label, bg="#101820", fg="#00f3ff", activebackground="#00f3ff", activeforeground="#001013", relief="flat", command=lambda cb=callback, px=x, py=y: (close_radial(), cb(px, py)))
-                button.pack(fill="both", expand=True)
-                radial_windows.append(window)
+            screen_center = (root.winfo_x() + size // 2, root.winfo_y() + size // 2)
+            state["radial_origin"] = screen_center
+            expanded_edge = max(300, size * 3)
+            display_center = (
+                max(expanded_edge // 2, min(root.winfo_screenwidth() - expanded_edge // 2, screen_center[0])),
+                max(expanded_edge // 2, min(root.winfo_screenheight() - expanded_edge // 2, screen_center[1])),
+            )
+            radial_window(expanded_edge, display_center)
+            center = float(expanded_edge // 2)
+            radius = min(expanded_edge * 0.36, center - 28)
+            half = max(18.0, min(23.0, size * 0.22))
+            targets = radial_layout(len(actions), center, radius)
+            state["radial_open"] = True
+            state["radial_nodes"] = []
+
+            halo = canvas.create_oval(
+                center - radius, center - radius, center + radius, center + radius,
+                outline="#087d99", width=1, dash=(2, 5), tags=("radial",),
+            )
+            radial_items.append(halo)
+            canvas.tag_lower(halo, "orb")
+            tooltip = canvas.create_text(
+                center, min(expanded_edge - 14, center + radius + 25), text="",
+                fill="#b9faff", font=("Segoe UI", 9, "bold"), state="hidden",
+                tags=("radial",),
+            )
+            radial_items.append(tooltip)
+            state["radial_tooltip"] = tooltip
+
+            def activate(callback, event) -> None:
+                x_root, y_root = event.x_root, event.y_root
+                close_radial()
+                root.after(135, callback, x_root, y_root)
+
+            def hover(node, active: bool) -> None:
+                canvas.itemconfigure(
+                    node["circle"],
+                    fill="#0b313b" if active else "#071a21",
+                    outline="#d9ffff" if active else "#00d9f5",
+                    width=3 if active else 2,
+                )
+                canvas.itemconfigure(tooltip, text=node["label"], state="normal" if active else "hidden")
+
+            for index, ((icon, label, callback), (target_x, target_y)) in enumerate(zip(actions, targets)):
+                tag = f"radial-action-{index}"
+                line = canvas.create_line(center, center, center, center, fill="#087d99", width=1, tags=("radial",))
+                circle = canvas.create_oval(center - half, center - half, center + half, center + half, fill="#071a21", outline="#00d9f5", width=2, tags=("radial", tag))
+                icon_item = canvas.create_text(center, center, text=icon, fill="#e5ffff", font=("Segoe UI Symbol", max(10, round(half * 0.72)), "bold"), tags=("radial", tag))
+                radial_items.extend((line, circle, icon_item))
+                node = {"line": line, "circle": circle, "icon": icon_item, "x": target_x, "y": target_y, "half": half, "label": label}
+                state["radial_nodes"].append(node)
+                canvas.tag_bind(tag, "<Enter>", lambda _event, item=node: hover(item, True))
+                canvas.tag_bind(tag, "<Leave>", lambda _event, item=node: hover(item, False))
+                canvas.tag_bind(tag, "<ButtonRelease-1>", lambda event, cb=callback: activate(cb, event))
+
+            total_steps = 8
+
+            def unfold(step: int = 0) -> None:
+                progress = min(1.0, step / total_steps)
+                eased = 1.0 - (1.0 - progress) ** 3
+                for node in state["radial_nodes"]:
+                    x = center + (node["x"] - center) * eased
+                    y = center + (node["y"] - center) * eased
+                    canvas.coords(node["line"], center, center, x, y)
+                    canvas.coords(node["circle"], x - half, y - half, x + half, y + half)
+                    canvas.coords(node["icon"], x, y)
+                if step >= total_steps:
+                    state["radial_job"] = None
+                else:
+                    state["radial_job"] = root.after(18, unfold, step + 1)
+
+            unfold()
 
         menu = tk.Menu(root, tearoff=False)
         menu.add_command(label=self._text["ghost.play_pause"], command=toggle_media)
@@ -295,11 +442,11 @@ class NativeGhostHost:
                 state["click_job"] = None
             expand()
 
-        canvas.bind("<ButtonPress-1>", begin_drag)
-        canvas.bind("<B1-Motion>", move)
-        canvas.bind("<ButtonRelease-1>", release)
-        canvas.bind("<Double-Button-1>", double_click)
-        canvas.bind("<Button-3>", lambda event: menu.tk_popup(event.x_root, event.y_root))
+        canvas.tag_bind("orb", "<ButtonPress-1>", begin_drag)
+        canvas.tag_bind("orb", "<B1-Motion>", move)
+        canvas.tag_bind("orb", "<ButtonRelease-1>", release)
+        canvas.tag_bind("orb", "<Double-Button-1>", double_click)
+        canvas.tag_bind("orb", "<Button-3>", lambda event: menu.tk_popup(event.x_root, event.y_root))
 
         current_media = self._media_status()
         if current_media.get("state") in {"playing", "paused"}:
@@ -330,7 +477,8 @@ class NativeGhostHost:
         try:
             root.mainloop()
         finally:
-            close_radial()
+            close_radial(immediate=True)
+            root.update_idletasks()
             stop_rotation()
             if state["click_job"] is not None:
                 root.after_cancel(state["click_job"])

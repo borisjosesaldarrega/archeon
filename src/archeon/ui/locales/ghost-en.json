@@ -4,5 +4,13 @@
   "ghost.next": "Next",
   "ghost.stop": "Stop",
   "ghost.open": "Open full interface",
+  "ghost.listen": "Listen now",
+  "ghost.apps": "Applications",
+  "ghost.games": "Games",
+  "ghost.favorites": "Favorites",
+  "ghost.settings": "Settings",
+  "ghost.volume_down": "Volume down",
+  "ghost.volume_up": "Volume up",
+  "ghost.choose_music": "Choose music",
   "ghost.exit": "Exit ARCHEON"
 }

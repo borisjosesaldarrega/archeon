@@ -5,8 +5,9 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>ARCHEON</title>
   <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/polish.css">
 </head>
-<body class="state-idle auth-active">
+<body class="state-idle auth-active" data-performance="eco" data-idle-animation="false">
   <div class="background-curtain" aria-hidden="true"></div>
   <video id="background-video" class="background-video" muted loop playsinline preload="metadata" hidden></video>
 
@@ -83,7 +84,7 @@
     </aside>
 
     <section class="visualizer" aria-label="Estado de ARCHEON">
-      <div class="ring r1"></div><div class="ring r2"></div><div class="ring r3"></div>
+      <div class="ring r1" aria-hidden="true"></div><div class="ring r2" aria-hidden="true"></div><div class="ring r3" aria-hidden="true"></div>
       <div class="core"><img id="core-art" src="/logo_asitente.png" alt="Orbe ARCHEON"></div>
       <div class="amplitude" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
     </section>
@@ -94,8 +95,14 @@
       <button id="voice-button" class="voice-button" disabled><span>◉</span><span data-i18n="voice.experimental">VOZ · EXPERIMENTAL (BACKEND PENDIENTE)</span></button>
     </section>
 
+    <section id="music-panel" class="music-widget" aria-label="Reproductor" aria-hidden="true">
+      <div class="track-copy"><strong id="track-title" data-i18n="music.none">Sin reproducción activa</strong><span id="track-artist"></span><small id="track-album"></small></div>
+      <div class="media-controls"><button id="music-previous" aria-label="Anterior">‹</button><button id="music-play" aria-label="Reproducir">▶</button><button id="music-pause" aria-label="Pausar">Ⅱ</button><button id="music-next" aria-label="Siguiente">›</button><button id="music-stop" aria-label="Detener">■</button></div>
+      <div class="media-sliders"><input id="music-seek" type="range" min="0" max="1" value="0" aria-label="Posición"><input id="music-volume" type="range" min="0" max="100" value="70" aria-label="Volumen"></div>
+    </section>
+
     <section class="command-console">
-      <form id="command-form"><input id="command-input" maxlength="2000" autocomplete="off" data-i18n-placeholder="command.placeholder" placeholder="Escribe una orden local"><button data-i18n="command.run">Ejecutar</button></form>
+      <form id="command-form"><input id="command-input" maxlength="2000" autocomplete="off" data-i18n-placeholder="command.placeholder" placeholder="Escribe una orden local"><button type="submit" aria-label="Ejecutar"><span aria-hidden="true">➤</span><span class="sr-only" data-i18n="command.run">Ejecutar</span></button></form>
       <pre id="result" aria-live="polite"></pre>
     </section>
 
@@ -185,11 +192,6 @@
       </form>
     </dialog>
 
-    <section id="music-panel" class="music-widget">
-      <div class="track-copy"><strong id="track-title" data-i18n="music.none">Sin reproducción activa</strong><span id="track-artist"></span></div>
-      <div class="media-controls"><button id="music-previous" aria-label="Anterior">‹</button><button id="music-play" aria-label="Reproducir">▶</button><button id="music-pause" aria-label="Pausar">Ⅱ</button><button id="music-next" aria-label="Siguiente">›</button><button id="music-stop" aria-label="Detener">■</button></div>
-      <div class="media-sliders"><input id="music-seek" type="range" min="0" max="1" value="0" aria-label="Posición"><input id="music-volume" type="range" min="0" max="100" value="70" aria-label="Volumen"></div>
-    </section>
   </main>
 
   <script src="/runtime-config.js"></script>

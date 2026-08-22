@@ -147,6 +147,19 @@ class ApplicationUITests(unittest.TestCase):
             response.read()
             self.assertEqual(response.headers["Cache-Control"], "no-cache, must-revalidate")
 
+    def test_polished_ui_is_served_as_a_lightweight_layout_layer(self) -> None:
+        html = (UI_ROOT / "index.html").read_text(encoding="utf-8")
+        self.assertIn('href="/polish.css"', html)
+        self.assertLess(html.index('id="music-panel"'), html.index('class="command-console"'))
+        stylesheet = (UI_ROOT / "polish.css").read_text(encoding="utf-8")
+        self.assertIn("grid-template-areas", stylesheet)
+        self.assertIn(".music-widget.active", stylesheet)
+        self.assertIn(".ui-hidden .ring", stylesheet)
+        with self.request("/polish.css") as response:
+            body = response.read().decode("utf-8")
+            self.assertEqual(response.headers["Content-Type"], "text/css")
+            self.assertIn("ARCHEON UI 2.0", body)
+
     def test_music_events_are_real_actions(self) -> None:
         subscription = self.application.events.subscribe("music.volume.changed")
         with self.request("/api/action", body={"action": "media.volume", "volume": 0.35}) as response:
