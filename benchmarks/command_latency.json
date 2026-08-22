@@ -1,0 +1,10 @@
+{
+  "timestamp": "2026-08-22T01:10:36.033392+00:00",
+  "command": "estado del sistema",
+  "cold_lazy_load_ms": 33.007,
+  "warm_mean_ms": 0.106,
+  "warm_median_ms": 0.093,
+  "warm_p95_ms": 0.145,
+  "iterations": 100,
+  "success": true
+}
