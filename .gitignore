@@ -1,0 +1,39 @@
+# Secrets and local identity
+.env
+.env.*
+!.env.example
+firebase_key*.json
+/Archeo32n.py
+*.pem
+*.key
+
+# Recovered/runtime data that may contain private paths or user content
+archeon_files.db
+memoria_predicciones.json
+memoria_predicciones.bak
+guest_config.json
+*.log
+
+# Python and local environments
+.venv/
+__pycache__/
+*.py[cod]
+*.pyd
+
+# Build products and bundled third-party binaries
+build/
+dist/
+Instalador_Final/
+ffmpeg-*_build/
+web/*.exe
+pyarmor_runtime_*/
+*.lnk
+
+# Recovery scratch space and downloaded analysis tools
+.recovery/
+
+# Editor/OS noise
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

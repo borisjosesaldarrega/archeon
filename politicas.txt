@@ -1,0 +1,28 @@
+    ACUERDO DE LICENCIA DE USUARIO FINAL (EULA) PARA ARCHEON ASSISTANT
+
+IMPORTANTE: POR FAVOR LEA CUIDADOSAMENTE ANTES DE INSTALAR.
+
+Este Acuerdo de Licencia de Usuario Final ("EULA") es un acuerdo legal entre usted (un individuo o una sola entidad) y DZKNIGHT COMPANY para el software "Archeon Assistant" (el "Software").
+
+AL INSTALAR, COPIAR O UTILIZAR DE CUALQUIER OTRA MANERA EL SOFTWARE, USTED ACEPTA ESTAR OBLIGADO POR LOS TÉRMINOS DE ESTE EULA. SI NO ACEPTA LOS TÉRMINOS, NO INSTALE NI USE EL SOFTWARE.
+
+1. CONCESIÓN DE LICENCIA
+Este EULA le otorga una licencia personal, no exclusiva e intransferible para instalar y utilizar el Software en sus dispositivos para fines personales y no comerciales.
+
+2. PROPIEDAD INTELECTUAL
+El Software y cualquier copia que usted haga están protegidos por leyes de derechos de autor y tratados internacionales. La propiedad y los derechos de autor del Software (incluyendo, pero no limitado a, imágenes, fotografías, animaciones, vídeo, audio, música y texto incorporados en el Software) pertenecen a DZKNIGHT COMPANY.
+
+3. RESTRICCIONES
+Usted no puede:
+- Modificar, traducir, realizar ingeniería inversa, descompilar o desensamblar el Software.
+- Alquilar, arrendar o prestar el Software.
+- Eliminar cualquier aviso de propiedad o etiquetas del Software.
+
+4. USO DE DATOS Y PRIVACIDAD
+El Software utiliza claves de API personales (como Google Gemini y Firebase) proporcionadas por el usuario. Estas claves se almacenan localmente en su dispositivo. El Software no envía estas claves a servidores externos de DZKNIGHT COMPANY sin su consentimiento explícito para el funcionamiento de la aplicación.
+
+5. RENUNCIA DE GARANTÍA
+EL SOFTWARE SE PROPORCIONA "TAL CUAL", SIN GARANTÍA DE NINGÚN TIPO. EL AUTOR NO GARANTIZA QUE EL SOFTWARE CUMPLA CON SUS REQUISITOS O QUE SU FUNCIONAMIENTO SEA ININTERRUMPIDO O LIBRE DE ERRORES. EL RIESGO TOTAL CON RESPECTO A LA CALIDAD Y EL RENDIMIENTO DEL SOFTWARE ES ASUMIDO POR USTED.
+
+6. LIMITACIÓN DE RESPONSABILIDAD
+EN NINGÚN CASO DZKNIGHT COMPANY SERÁ RESPONSABLE POR DAÑOS ESPECIALES, INCIDENTALES, INDIRECTOS O CONSECUENTES (INCLUYENDO, SIN LIMITACIÓN, DAÑOS POR PÉRDIDA DE BENEFICIOS COMERCIALES, INTERRUPCIÓN DEL NEGOCIO, O CUALQUIER OTRA PÉRDIDA PECUNIARIA) QUE SURJAN DEL USO O LA INCAPACIDAD DE USAR EL SOFTWARE.
