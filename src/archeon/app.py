@@ -344,6 +344,21 @@ class ArcheonApplication:
                 session = self.auth.update_user(session_token, {"email": email})
             elif operation == "logout-others":
                 return {"ok": self.auth.logout_others(session_token)}
+            elif operation == "mfa-status":
+                return {"ok": True, "factors": self.auth.mfa_status(session_token)}
+            elif operation == "mfa-enroll":
+                return {"ok": True, "factor": self.auth.mfa_enroll(session_token, str(payload.get("friendly_name", "")))}
+            elif operation == "mfa-verify":
+                session = self.auth.mfa_verify(session_token, str(payload.get("factor_id", "")), str(payload.get("code", "")))
+            elif operation == "mfa-unenroll":
+                self.auth.mfa_unenroll(session_token, str(payload.get("factor_id", "")))
+                return {"ok": True}
+            elif operation == "delete-account":
+                if payload.get("confirmation") != "DELETE":
+                    return {"ok": False, "error": "delete_confirmation_required"}
+                self.voice.interrupt()
+                self.permissions.clear_session()
+                return {"ok": self.auth.delete_account(session_token)}
             elif operation == "logout":
                 self.voice.interrupt()
                 self.permissions.clear_session()

@@ -127,6 +127,15 @@
         </div>
         <p class="provider-note" data-i18n="account.dpapi_note">La sesión se cifra con DPAPI para este usuario de Windows. La contraseña no se almacena.</p>
         <button id="account-logout-others" class="ghost-action" type="button" data-i18n="account.logout_others">Cerrar otras sesiones</button>
+        <section class="mfa-panel">
+          <strong data-i18n="account.mfa">MFA / 2FA</strong>
+          <p id="mfa-status" class="provider-note"></p>
+          <button id="mfa-enroll" class="outline" type="button" data-i18n="account.mfa_enroll">Configurar aplicación autenticadora</button>
+          <img id="mfa-qr" hidden alt="Código QR MFA">
+          <code id="mfa-secret"></code>
+          <div class="mfa-verify" hidden><input id="mfa-code" inputmode="numeric" autocomplete="one-time-code" maxlength="8" placeholder="000000"><button id="mfa-verify" class="primary" type="button" data-i18n="account.mfa_verify">Activar 2FA</button></div>
+        </section>
+        <details><summary data-i18n="account.danger">Zona de peligro</summary><label><span data-i18n="account.delete_confirm">Escribe DELETE para eliminar la cuenta</span><input id="account-delete-confirm" autocomplete="off"></label><button id="account-delete" class="menu-item logout" type="button" data-i18n="account.delete">Eliminar cuenta permanentemente</button></details>
         <p id="account-message" class="auth-message" role="status"></p>
       </form>
     </dialog>

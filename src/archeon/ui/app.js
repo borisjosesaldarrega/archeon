@@ -159,10 +159,12 @@
   const settingsDialog = document.getElementById("settings-dialog");
   const accountDialog = document.getElementById("account-dialog");
   const accountMessage = document.getElementById("account-message");
-  document.getElementById("account-open").addEventListener("click",()=>{
+  let pendingFactorId="";
+  document.getElementById("account-open").addEventListener("click",async()=>{
     document.getElementById("sidebar").classList.remove("open");
     document.getElementById("account-current-email").textContent=session?.identity.email||"";
     accountMessage.textContent=""; accountDialog.showModal();
+    try{const value=await auth("mfa-status");document.getElementById("mfa-status").textContent=value.factors.some(f=>f.status==="verified")?t("account.mfa_enabled"):t("account.mfa_disabled");}catch(_){}
   });
   document.getElementById("account-close").addEventListener("click",()=>accountDialog.close());
   async function updateAccount(operation,payload,successKey){
@@ -177,6 +179,15 @@
   document.getElementById("account-send-nonce").addEventListener("click",()=>updateAccount("reauthenticate",{},"account.code_sent"));
   document.getElementById("account-change-password").addEventListener("click",()=>updateAccount("change-password",{password:document.getElementById("account-password").value,nonce:document.getElementById("account-nonce").value},"account.password_changed"));
   document.getElementById("account-logout-others").addEventListener("click",()=>updateAccount("logout-others",{},"account.others_closed"));
+  document.getElementById("mfa-enroll").addEventListener("click",async()=>{
+    try{const value=await auth("mfa-enroll",{friendly_name:"ARCHEON Windows"});pendingFactorId=value.factor.id;const totp=value.factor.totp||{};const qr=document.getElementById("mfa-qr");qr.src=totp.qr_code||"";qr.hidden=!qr.src;document.getElementById("mfa-secret").textContent=totp.secret||"";document.querySelector(".mfa-verify").hidden=false;}catch(error){authError(error);accountMessage.textContent=authMessage.textContent;authMessage.textContent="";}
+  });
+  document.getElementById("mfa-verify").addEventListener("click",async()=>{
+    try{const value=await auth("mfa-verify",{factor_id:pendingFactorId,code:document.getElementById("mfa-code").value});sessionStorage.setItem("archeon_session",value.session_token);session=value.session;document.getElementById("mfa-status").textContent=t("account.mfa_enabled");document.querySelector(".mfa-verify").hidden=true;document.getElementById("mfa-qr").hidden=true;document.getElementById("mfa-secret").textContent="";}catch(error){authError(error);accountMessage.textContent=authMessage.textContent;authMessage.textContent="";}
+  });
+  document.getElementById("account-delete").addEventListener("click",async()=>{
+    try{await auth("delete-account",{confirmation:document.getElementById("account-delete-confirm").value});events?.close();sessionStorage.removeItem("archeon_session");location.reload();}catch(error){authError(error);accountMessage.textContent=authMessage.textContent;authMessage.textContent="";}
+  });
   const languageChoices = ["es","en","pt","fr","de","it","zh","ja","ko","ru","ar","hi"];
   function applySettings(settings) {
     settingsCache = settings;

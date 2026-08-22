@@ -37,6 +37,7 @@ class ProviderSession:
     expires_at: int = 0
     email_verified: bool = False
     pending_confirmation: bool = False
+    mfa_required: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,6 +68,11 @@ class AuthProvider(Protocol):
     def reauthenticate(self, access_token: str) -> None: ...
     def update_user(self, access_token: str, changes: dict[str, str]) -> ProviderSession: ...
     def logout(self, access_token: str = "", scope: str = "global") -> None: ...
+    def mfa_enroll(self, access_token: str, friendly_name: str) -> dict[str, Any]: ...
+    def mfa_verify(self, access_token: str, factor_id: str, code: str) -> ProviderSession: ...
+    def mfa_factors(self, access_token: str) -> list[dict[str, Any]]: ...
+    def mfa_unenroll(self, access_token: str, factor_id: str) -> None: ...
+    def delete_account(self, access_token: str) -> None: ...
 
 
 class SessionVault(Protocol):
@@ -248,6 +254,21 @@ class DevelopmentAuthProvider:
     def logout(self, access_token: str = "", scope: str = "global") -> None:
         return None
 
+    def mfa_enroll(self, access_token: str, friendly_name: str) -> dict[str, Any]:
+        raise ValueError("cloud_auth_unavailable")
+
+    def mfa_verify(self, access_token: str, factor_id: str, code: str) -> ProviderSession:
+        raise ValueError("cloud_auth_unavailable")
+
+    def mfa_factors(self, access_token: str) -> list[dict[str, Any]]:
+        return []
+
+    def mfa_unenroll(self, access_token: str, factor_id: str) -> None:
+        raise ValueError("cloud_auth_unavailable")
+
+    def delete_account(self, access_token: str) -> None:
+        raise ValueError("cloud_auth_unavailable")
+
 
 class SupabaseAuthProvider:
     """Dependency-free GoTrue adapter loaded only for account actions."""
@@ -265,7 +286,8 @@ class SupabaseAuthProvider:
         body = None if payload is None else json.dumps(payload).encode()
         headers = {"apikey": self._key, "Content-Type": "application/json"}
         headers["Authorization"] = f"Bearer {access_token or self._key}"
-        request = Request(f"{self._url}/auth/v1/{path}", data=body, headers=headers, method=method)
+        endpoint = f"{self._url}{path}" if path.startswith("/") else f"{self._url}/auth/v1/{path}"
+        request = Request(endpoint, data=body, headers=headers, method=method)
         try:
             with urlopen(request, timeout=self._timeout) as response:
                 raw = response.read()
@@ -331,6 +353,25 @@ class SupabaseAuthProvider:
     def logout(self, access_token: str = "", scope: str = "global") -> None:
         if access_token:
             self._request("POST", f"logout?{urlencode({'scope': scope})}", {}, access_token=access_token)
+
+    def mfa_enroll(self, access_token: str, friendly_name: str) -> dict[str, Any]:
+        return self._request("POST", "factors", {"factor_type": "totp", "friendly_name": friendly_name}, access_token=access_token)
+
+    def mfa_factors(self, access_token: str) -> list[dict[str, Any]]:
+        user = self._request("GET", "user", access_token=access_token)
+        factors = user.get("factors", [])
+        return [factor for factor in factors if isinstance(factor, dict)]
+
+    def mfa_verify(self, access_token: str, factor_id: str, code: str) -> ProviderSession:
+        challenge = self._request("POST", f"factors/{factor_id}/challenge", {}, access_token=access_token)
+        verified = self._request("POST", f"factors/{factor_id}/verify", {"challenge_id": challenge.get("id"), "code": code}, access_token=access_token)
+        return self._result(verified)
+
+    def mfa_unenroll(self, access_token: str, factor_id: str) -> None:
+        self._request("DELETE", f"factors/{factor_id}", access_token=access_token)
+
+    def delete_account(self, access_token: str) -> None:
+        self._request("POST", "/rest/v1/rpc/delete_own_account", {}, access_token=access_token)
 
 
 class AuthManager(ManagedComponent):
@@ -407,6 +448,32 @@ class AuthManager(ManagedComponent):
         self._provider.logout(current.access_token, "others")
         self._events.publish("auth.sessions.others_ended", source="auth")
         return True
+
+    def mfa_status(self, token: str) -> list[dict[str, Any]]:
+        current = self._provider_for(token)
+        return self._provider.mfa_factors(current.access_token)
+
+    def mfa_enroll(self, token: str, friendly_name: str) -> dict[str, Any]:
+        current = self._provider_for(token)
+        return self._provider.mfa_enroll(current.access_token, friendly_name[:40] or "ARCHEON Windows")
+
+    def mfa_verify(self, token: str, factor_id: str, code: str) -> Session:
+        current = self._provider_for(token)
+        return self._replace(token, self._provider.mfa_verify(current.access_token, factor_id, code))
+
+    def mfa_unenroll(self, token: str, factor_id: str) -> None:
+        current = self._provider_for(token)
+        self._provider.mfa_unenroll(current.access_token, factor_id)
+
+    def delete_account(self, token: str) -> bool:
+        current = self._provider_for(token)
+        self._provider.delete_account(current.access_token)
+        with self._lock:
+            removed = self._sessions.pop(token, None)
+            self._provider_sessions.pop(token, None)
+        self._vault.clear()
+        self._events.publish("auth.account.deleted", source="auth")
+        return removed is not None
 
     def _provider_for(self, token: str) -> ProviderSession:
         with self._lock:
