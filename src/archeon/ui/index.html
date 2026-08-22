@@ -76,6 +76,7 @@
       <div class="profile"><div class="profile-icon">A</div><strong id="profile-name">ARCHEON</strong><span id="profile-email"></span></div>
       <button id="voice-settings-open" class="menu-item" data-i18n="menu.voice">🎙 Voz y micrófono</button>
       <button id="music-open" class="menu-item" data-i18n="menu.music">♫ Reproductor local</button>
+      <button id="launcher-open" class="menu-item">▦ Launcher</button>
       <button id="account-open" class="menu-item" data-i18n="menu.account">Cuenta y seguridad</button>
       <button id="settings-open" class="menu-item" data-i18n="menu.settings">⚙ Configuración</button>
       <button id="logout-button" class="menu-item logout" data-i18n="menu.logout">Cerrar sesión</button>
@@ -138,6 +139,14 @@
         </section>
         <details><summary data-i18n="account.danger">Zona de peligro</summary><label><span data-i18n="account.delete_confirm">Escribe DELETE para eliminar la cuenta</span><input id="account-delete-confirm" autocomplete="off"></label><button id="account-delete" class="menu-item logout" type="button" data-i18n="account.delete">Eliminar cuenta permanentemente</button></details>
         <p id="account-message" class="auth-message" role="status"></p>
+      </form>
+    </dialog>
+
+    <dialog id="launcher-dialog" class="settings-dialog launcher-dialog">
+      <form method="dialog"><header><div><span class="eyebrow">LAUNCHER</span><h2>Apps y juegos</h2></div><button id="launcher-close" type="button" aria-label="Cerrar">×</button></header>
+        <div class="launcher-tabs"><button type="button" data-launcher-category="all">Todo</button><button type="button" data-launcher-category="app">Apps</button><button type="button" data-launcher-category="game">Juegos</button><button type="button" data-launcher-category="favorites">Favoritos</button><button type="button" data-launcher-category="recent">Recientes</button></div>
+        <input id="launcher-search" type="search" placeholder="Buscar sin volver a escanear">
+        <div id="launcher-list" class="launcher-list"></div><p id="launcher-message" class="auth-message"></p>
       </form>
     </dialog>
 

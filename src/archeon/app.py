@@ -19,6 +19,7 @@ from archeon.core.secure_logging import close_logger, configure_logging, log_eve
 from archeon.core.tools import ToolEngine
 from archeon.database import DatabaseManager
 from archeon.media import MediaEngine, MediaState
+from archeon.launcher import LauncherEngine
 from archeon.plugins import PluginManager
 from archeon.system import DeviceSystemEngine
 from archeon.ui.server import UIServer
@@ -60,6 +61,7 @@ class ArcheonApplication:
             self.data_dir,
             output_device_provider=lambda: self.configuration.config.audio.output_device_id,
         )
+        self.launcher = LauncherEngine(self.data_dir)
         self.plugins = PluginManager(self.events, self.data_dir / "plugins")
         self.system = DeviceSystemEngine(self.tools)
         self.orchestrator = Orchestrator(
@@ -107,6 +109,7 @@ class ArcheonApplication:
                 self.tools,
                 self.audio,
                 self.media,
+                self.launcher,
                 self.voice,
                 self.plugins,
                 self.ui_server,
@@ -143,6 +146,13 @@ class ArcheonApplication:
             close_logger(self.logger)
 
     def handle_command(self, text: str) -> dict[str, Any]:
+        launch_item = self.launcher.command_item(text)
+        if launch_item is not None:
+            try:
+                result = self.launcher.launch(launch_item.id)
+                return {"ok": True, "message": f"Abriendo {launch_item.name}", "data": result, "correlation_id": None}
+            except (OSError, ValueError) as error:
+                return {"ok": False, "message": str(error), "data": {}, "correlation_id": None}
         response = self.orchestrator.handle_text(text)
         return {
             "ok": response.ok,
@@ -183,6 +193,26 @@ class ArcheonApplication:
         if action == "app.exit":
             self.events.publish("ui.window.exit", source="application")
             return {"ok": True}
+        if action == "launcher.list":
+            self.launcher.refresh(force=bool(payload.get("force")))
+            return {"ok": True, "items": self.launcher.list_items(str(payload.get("category", "all")))}
+        if action == "launcher.open":
+            try:
+                return {"ok": True, "item": self.launcher.launch(str(payload.get("id", "")))}
+            except (OSError, ValueError) as error:
+                return {"ok": False, "error": str(error)}
+        if action == "launcher.favorite":
+            try:
+                self.launcher.favorite(str(payload.get("id", "")), bool(payload.get("enabled")))
+                return {"ok": True}
+            except ValueError as error:
+                return {"ok": False, "error": str(error)}
+        if action == "launcher.alias":
+            try:
+                self.launcher.set_alias(str(payload.get("alias", "")), str(payload.get("id", "")))
+                return {"ok": True}
+            except ValueError as error:
+                return {"ok": False, "error": str(error)}
         if action == "voice.listen":
             decision = self.permissions.evaluate(
                 ("microphone.capture",),
@@ -414,6 +444,7 @@ class ArcheonApplication:
             "database": self.database.health(),
             "audio_backend_loaded": self.audio.backend_loaded,
             "plugins_loaded": self.plugins.loaded_count,
+            "launcher_loaded": self.launcher.loaded,
             "auth_provider": self.auth.provider_name,
             "voice": self.voice.status(),
             "media": self.media.status(),
