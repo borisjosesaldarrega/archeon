@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import ctypes
 import json
 import time
 import webbrowser
@@ -11,6 +12,31 @@ from threading import Event
 
 from archeon.app import ArcheonApplication
 from archeon.ui import DesktopHost, DesktopUnavailable
+
+
+class SingleInstance:
+    """Windows named mutex that prevents duplicated ARCHEON runtimes."""
+
+    def __init__(self) -> None:
+        self._handle = None
+
+    def acquire(self) -> bool:
+        if __import__("os").name != "nt":
+            return True
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.CreateMutexW(None, False, "Local\\ARCHEON.Core.SingleInstance")
+        if not handle:
+            return False
+        if kernel32.GetLastError() == 183:
+            kernel32.CloseHandle(handle)
+            return False
+        self._handle = handle
+        return True
+
+    def close(self) -> None:
+        if self._handle:
+            ctypes.windll.kernel32.CloseHandle(self._handle)
+            self._handle = None
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -27,11 +53,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--benchmark-launcher", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--benchmark-radial", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--benchmark-background", choices=("image", "video"), help=argparse.SUPPRESS)
+    parser.add_argument("--allow-multiple", action="store_true", help=argparse.SUPPRESS)
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    instance = SingleInstance()
+    if not args.allow_multiple and not instance.acquire():
+        return 0
     application = ArcheonApplication(
         data_dir=args.data_dir,
         port=args.port,
@@ -114,6 +144,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     finally:
         application.stop()
+        instance.close()
     return 0
 
 

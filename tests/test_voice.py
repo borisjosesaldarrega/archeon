@@ -4,6 +4,7 @@ import tempfile
 import unittest
 import sys
 from pathlib import Path
+from threading import Event
 
 from archeon.audio import AudioManager
 from archeon.core.events import EventBus
@@ -11,6 +12,39 @@ from archeon.voice import VoicePipeline
 
 
 class VoiceTests(unittest.TestCase):
+    def test_wake_monitor_restarts_after_rapid_disable_enable(self) -> None:
+        events = EventBus()
+        audio = AudioManager(events)
+        enabled = {"value": True}
+        pipeline = VoicePipeline(
+            events, audio, lambda text: {"ok": True, "message": text},
+            Path(tempfile.gettempdir()) / "missing-archeon-model",
+            wake_enabled_provider=lambda: enabled["value"],
+        )
+        starts = []
+        started = Event()
+
+        def monitor() -> None:
+            starts.append(1)
+            started.set()
+            pipeline._wake_stop.wait()
+            pipeline._wake_thread = None
+
+        pipeline._run_wake_monitor = monitor
+        audio.start()
+        pipeline.start()
+        self.assertTrue(started.wait(1.0))
+        started.clear()
+        enabled["value"] = False
+        pipeline.sync_wake_word()
+        enabled["value"] = True
+        pipeline.sync_wake_word()
+        self.assertTrue(started.wait(1.0))
+        self.assertEqual(len(starts), 2)
+        enabled["value"] = False
+        pipeline.stop()
+        audio.stop()
+
     def test_wake_name_detection_is_accent_tolerant_and_keeps_multilingual_command(self) -> None:
         self.assertEqual(VoicePipeline.split_wake_command("Archeón, abre Spotify", "Archeon"), "abre spotify")
         self.assertEqual(VoicePipeline.split_wake_command("Arqueón abre Spotify", "Archeon"), "abre spotify")

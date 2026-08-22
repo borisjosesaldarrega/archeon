@@ -59,6 +59,7 @@ def measure(name: str, extra: list[str], *, warmup: float, sample: float) -> dic
         str(warmup + sample + 3.0),
         "--data-dir",
         str(runtime),
+        "--allow-multiple",
     ]
     wall_started = time.perf_counter()
     child = subprocess.Popen(

@@ -30,6 +30,8 @@ __pycache__/
 build/
 dist/
 Instalador_Final/
+build-v10/
+dist-v10/
 ffmpeg-*_build/
 web/*.exe
 pyarmor_runtime_*/

@@ -9,7 +9,7 @@ from array import array
 from collections import deque
 from collections.abc import Callable
 from pathlib import Path
-from threading import Event, RLock, Thread
+from threading import Event, RLock, Thread, current_thread
 from typing import Any
 
 from archeon.audio import AudioManager, AudioMode, AudioSessionConfig
@@ -97,12 +97,18 @@ class VoicePipeline(ManagedComponent):
 
     def sync_wake_word(self) -> None:
         thread = self._wake_thread
-        if self._wake_enabled_provider() and (thread is None or not thread.is_alive()):
+        enabled = self._wake_enabled_provider()
+        if enabled and thread is not None and thread.is_alive() and self._wake_stop.is_set():
+            thread.join(timeout=2.0)
+            thread = self._wake_thread
+        if enabled and (thread is None or not thread.is_alive()):
             self._wake_stop.clear()
             self._wake_thread = Thread(target=self._run_wake_monitor, name="archeon-wake-word", daemon=False)
             self._wake_thread.start()
-        elif not self._wake_enabled_provider() and thread is not None:
+        elif not enabled and thread is not None:
             self._wake_stop.set()
+            if thread is not current_thread():
+                thread.join(timeout=2.0)
 
     @classmethod
     def split_wake_command(cls, text: str, wake_name: str) -> str | None:

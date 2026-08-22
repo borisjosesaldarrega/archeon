@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 import time
 from pathlib import Path
 from threading import RLock
@@ -74,7 +75,8 @@ class ArcheonApplication:
             conversation_language_provider=lambda: self.configuration.config.language.conversation,
             interface_language_provider=lambda: self.configuration.config.language.interface,
         )
-        models_root = Path(__file__).resolve().parents[2] / "models"
+        installation_root = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parents[2]
+        models_root = Path(os.environ.get("ARCHEON_MODELS_DIR", installation_root / "models"))
         self.voice = VoicePipeline(
             self.events,
             self.audio,
