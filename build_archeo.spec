@@ -44,6 +44,9 @@ a = Analysis(
         "PyQt5", "PyQt6", "PySide2", "PySide6", "flask", "firebase_admin",
         "google.cloud", "google.generativeai", "numpy", "pandas", "torch",
         "tensorflow", "cv2", "pyautogui", "yt_dlp", "speech_recognition",
+        # Ghost needs basic PNG/JPEG/WebP raster support, not AVIF, FreeType,
+        # color-management, or Pillow's numerical imaging extension.
+        "PIL._avif", "PIL._imagingft", "PIL._imagingcms", "PIL._imagingmath",
     ],
     noarchive=False,
 )
