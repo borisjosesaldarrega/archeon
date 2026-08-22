@@ -16,6 +16,7 @@ class ApplicationUITests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.application = ArcheonApplication(data_dir=Path(self.temp.name), port=0)
         self.application.start()
+        self.session_token = self.application.auth.guest().token
 
     def tearDown(self) -> None:
         self.application.stop()
@@ -26,6 +27,7 @@ class ApplicationUITests(unittest.TestCase):
         data = None
         if authorized:
             headers["X-Archeon-Token"] = self.application.ui_server.token
+            headers["X-Archeon-Session"] = self.session_token
         if body is not None:
             headers["Content-Type"] = "application/json"
             data = json.dumps(body).encode()
@@ -48,6 +50,16 @@ class ApplicationUITests(unittest.TestCase):
         self.assertGreater(payload["data"]["logical_cpu_count"], 0)
         self.assertEqual(self.application.tools.loaded_tool_count, 1)
 
+    def test_commands_require_an_application_session(self) -> None:
+        request = urllib.request.Request(
+            self.application.ui_server.url + "/api/command",
+            headers={"X-Archeon-Token": self.application.ui_server.token, "Content-Type": "application/json"},
+            data=json.dumps({"text": "estado del sistema"}).encode(),
+        )
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            urllib.request.urlopen(request, timeout=2)
+        self.assertEqual(caught.exception.code, 401)
+
     def test_window_action_is_persisted_and_published(self) -> None:
         subscription = self.application.events.subscribe("ui.window.*")
         with self.request("/api/action", body={"action": "window.ghost"}) as response:
@@ -63,6 +75,8 @@ class ApplicationUITests(unittest.TestCase):
         self.assertNotIn("setInterval", javascript)
         html = (UI_ROOT / "index.html").read_text(encoding="utf-8")
         self.assertIn('preload="none"', html)
+        self.assertTrue((UI_ROOT / "locales" / "es.json").is_file())
+        self.assertTrue((UI_ROOT / "locales" / "en.json").is_file())
 
     def test_music_events_are_real_actions(self) -> None:
         subscription = self.application.events.subscribe("music.*")
@@ -70,6 +84,33 @@ class ApplicationUITests(unittest.TestCase):
             self.assertTrue(json.load(response)["ok"])
         self.assertEqual(subscription.get(timeout=0.2).type, "music.started")
         subscription.close()
+
+    def test_guest_session_is_local_and_logout_invalidates_it(self) -> None:
+        with self.request("/api/auth/guest", body={}) as response:
+            created = json.load(response)
+        self.assertTrue(created["ok"])
+        self.assertEqual(created["session"]["mode"], "guest")
+        session_token = created["session_token"]
+        request = urllib.request.Request(
+            self.application.ui_server.url + "/api/session",
+            headers={
+                "X-Archeon-Token": self.application.ui_server.token,
+                "X-Archeon-Session": session_token,
+            },
+        )
+        with urllib.request.urlopen(request, timeout=2) as response:
+            self.assertTrue(json.load(response)["ok"])
+
+    def test_development_register_and_login_flow(self) -> None:
+        account = {"email": "test@example.com", "password": "correct-horse", "display_name": "Test"}
+        with self.request("/api/auth/register", body=account) as response:
+            self.assertTrue(json.load(response)["ok"])
+        with self.request(
+            "/api/auth/login", body={"email": account["email"], "password": account["password"]}
+        ) as response:
+            logged_in = json.load(response)
+        self.assertTrue(logged_in["ok"])
+        self.assertEqual(logged_in["session"]["identity"]["display_name"], "Test")
 
     def test_server_stops_its_thread(self) -> None:
         self.assertTrue(self.application.ui_server.thread_alive)

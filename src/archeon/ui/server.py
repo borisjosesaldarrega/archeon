@@ -36,6 +36,8 @@ class UIServer(ManagedComponent):
         command_handler: Callable[[str], dict[str, Any]],
         action_handler: Callable[[str], dict[str, Any]],
         health_handler: Callable[[], dict[str, Any]],
+        auth_handler: Callable[[str, dict[str, Any], str], dict[str, Any]],
+        session_handler: Callable[[str], dict[str, Any]],
         port: int = 0,
     ) -> None:
         super().__init__("ui_server")
@@ -43,6 +45,8 @@ class UIServer(ManagedComponent):
         self._command_handler = command_handler
         self._action_handler = action_handler
         self._health_handler = health_handler
+        self._auth_handler = auth_handler
+        self._session_handler = session_handler
         self._requested_port = port
         self._token = secrets.token_urlsafe(24)
         self._server: _Server | None = None
@@ -96,6 +100,10 @@ class UIServer(ManagedComponent):
                 candidate = header or query.get("token", [""])[0]
                 return secrets.compare_digest(candidate, owner.token)
 
+            def _session_authorized(self) -> bool:
+                token = self.headers.get("X-Archeon-Session", "")
+                return bool(owner._session_handler(token).get("ok"))
+
             def _json(self, payload: dict[str, Any], status: HTTPStatus = HTTPStatus.OK) -> None:
                 body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
                 self.send_response(status)
@@ -131,6 +139,12 @@ class UIServer(ManagedComponent):
                         return
                     self._json(owner._health_handler())
                     return
+                if path == "/api/session":
+                    if not self._authorized():
+                        self._json({"ok": False, "error": "unauthorized"}, HTTPStatus.UNAUTHORIZED)
+                        return
+                    self._json(owner._session_handler(self.headers.get("X-Archeon-Session", "")))
+                    return
                 if path == "/events":
                     self._serve_events()
                     return
@@ -163,7 +177,19 @@ class UIServer(ManagedComponent):
                     self._json({"ok": False, "error": "invalid JSON"}, HTTPStatus.BAD_REQUEST)
                     return
                 path = urlparse(self.path).path
+                if path.startswith("/api/auth/"):
+                    operation = path.removeprefix("/api/auth/")
+                    result = owner._auth_handler(
+                        operation,
+                        payload,
+                        self.headers.get("X-Archeon-Session", ""),
+                    )
+                    self._json(result, HTTPStatus.OK if result.get("ok") else HTTPStatus.BAD_REQUEST)
+                    return
                 if path == "/api/command":
+                    if not self._session_authorized():
+                        self._json({"ok": False, "error": "session_required"}, HTTPStatus.UNAUTHORIZED)
+                        return
                     text = payload.get("text")
                     if not isinstance(text, str) or not text.strip() or len(text) > 2_000:
                         self._json({"ok": False, "error": "invalid text"}, HTTPStatus.BAD_REQUEST)
@@ -171,6 +197,9 @@ class UIServer(ManagedComponent):
                     self._json(owner._command_handler(text))
                     return
                 if path == "/api/action":
+                    if not self._session_authorized():
+                        self._json({"ok": False, "error": "session_required"}, HTTPStatus.UNAUTHORIZED)
+                        return
                     action = payload.get("action")
                     if not isinstance(action, str):
                         self._json({"ok": False, "error": "invalid action"}, HTTPStatus.BAD_REQUEST)

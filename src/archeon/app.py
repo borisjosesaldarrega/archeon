@@ -8,6 +8,7 @@ from threading import RLock
 from typing import Any
 
 from archeon.audio import AudioManager
+from archeon.auth import AuthManager, DevelopmentAuthProvider
 from archeon.core.config import ConfigurationManager, default_data_dir
 from archeon.core.events import EventBus
 from archeon.core.lifecycle import LifecycleManager
@@ -30,6 +31,10 @@ class ArcheonApplication:
         self.permissions = PermissionEngine(self.configuration)
         self.tools = ToolEngine(self.events, self.permissions)
         self.database = DatabaseManager()
+        self.auth = AuthManager(
+            self.events,
+            DevelopmentAuthProvider(self.data_dir / "development-auth.json"),
+        )
         self.audio = AudioManager(self.events)
         self.plugins = PluginManager(self.events, self.data_dir / "plugins")
         self.system = DeviceSystemEngine(self.tools)
@@ -39,12 +44,15 @@ class ArcheonApplication:
             command_handler=self.handle_command,
             action_handler=self.handle_action,
             health_handler=self.health,
+            auth_handler=self.handle_auth,
+            session_handler=self.handle_session,
             port=port,
         )
         self.lifecycle = LifecycleManager(
             (
                 self.configuration,
                 self.database,
+                self.auth,
                 self.system,
                 self.tools,
                 self.audio,
@@ -115,6 +123,32 @@ class ArcheonApplication:
             return {"ok": True}
         return {"ok": False, "error": f"unknown action: {action}"}
 
+    def handle_auth(
+        self, operation: str, payload: dict[str, Any], session_token: str
+    ) -> dict[str, Any]:
+        try:
+            if operation == "guest":
+                session = self.auth.guest()
+            elif operation == "login":
+                session = self.auth.login(str(payload.get("email", "")), str(payload.get("password", "")))
+            elif operation == "register":
+                session = self.auth.register(
+                    str(payload.get("email", "")),
+                    str(payload.get("password", "")),
+                    str(payload.get("display_name", "")),
+                )
+            elif operation == "logout":
+                return {"ok": self.auth.logout(session_token)}
+            else:
+                return {"ok": False, "error": "unknown_auth_operation"}
+        except ValueError as error:
+            return {"ok": False, "error": str(error)}
+        return {"ok": True, "session_token": session.token, "session": session.public()}
+
+    def handle_session(self, session_token: str) -> dict[str, Any]:
+        session = self.auth.get(session_token)
+        return {"ok": session is not None, "session": session.public() if session else None}
+
     def health(self) -> dict[str, Any]:
         return {
             "ok": self._started,
@@ -124,6 +158,7 @@ class ArcheonApplication:
             "database": self.database.health(),
             "audio_backend_loaded": self.audio.backend_loaded,
             "plugins_loaded": self.plugins.loaded_count,
+            "auth_provider": self.auth.provider_name,
             "event_subscribers": self.events.subscriber_count,
         }
 
