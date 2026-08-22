@@ -84,6 +84,7 @@ class ArcheonApplication:
             models_root,
             input_device_provider=lambda: self.configuration.config.audio.input_device_id,
             locale_provider=self._speech_synthesis_locale,
+            recognition_locale_provider=self._speech_recognition_locale,
             profile_provider=lambda: self.configuration.config.voice.profile,
             tts_config_provider=lambda: {
                 "voice_id": self.configuration.config.voice.tts_voice_id,
@@ -382,6 +383,13 @@ class ArcheonApplication:
 
     def _speech_synthesis_locale(self) -> str:
         selected = self.configuration.config.language.speech_synthesis
+        if selected != "auto":
+            return selected
+        conversation = self.configuration.config.language.conversation
+        return conversation if conversation != "auto" else self.configuration.config.language.interface
+
+    def _speech_recognition_locale(self) -> str:
+        selected = self.configuration.config.language.speech_recognition
         if selected != "auto":
             return selected
         conversation = self.configuration.config.language.conversation

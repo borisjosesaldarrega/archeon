@@ -9,9 +9,22 @@ from threading import Event
 from archeon.audio import AudioManager
 from archeon.core.events import EventBus
 from archeon.voice import VoicePipeline
+from archeon.voice.catalog import resolve_model
 
 
 class VoiceTests(unittest.TestCase):
+    def test_recognition_locale_selects_only_an_installed_sidecar_model(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            english = root / "vosk-model-small-en-us-0.15"
+            english.mkdir()
+            spec, path = resolve_model(root, "eco", "en-US")
+            self.assertEqual(spec.languages, ("en",))
+            self.assertEqual(path, english)
+            french_spec, french_path = resolve_model(root, "eco", "fr")
+            self.assertEqual(french_spec.languages, ("fr",))
+            self.assertFalse(french_path.exists())
+
     def test_wake_monitor_restarts_after_rapid_disable_enable(self) -> None:
         events = EventBus()
         audio = AudioManager(events)

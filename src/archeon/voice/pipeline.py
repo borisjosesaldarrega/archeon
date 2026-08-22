@@ -35,6 +35,7 @@ class VoicePipeline(ManagedComponent):
         input_device_id: str | None = None,
         input_device_provider: Callable[[], str | None] | None = None,
         locale_provider: Callable[[], str] | None = None,
+        recognition_locale_provider: Callable[[], str] | None = None,
         profile_provider: Callable[[], str] | None = None,
         tts_config_provider: Callable[[], dict[str, Any]] | None = None,
         barge_in_provider: Callable[[], bool] | None = None,
@@ -47,7 +48,10 @@ class VoicePipeline(ManagedComponent):
         self._command_handler = command_handler
         self._models_root = models_root
         self._profile_provider = profile_provider or (lambda: "eco")
-        _, model_path = resolve_model(models_root, self._profile_provider())
+        self._recognition_locale_provider = recognition_locale_provider or (lambda: "es")
+        _, model_path = resolve_model(
+            models_root, self._profile_provider(), self._recognition_locale_provider()
+        )
         self._stt = VoskSpeechToText(model_path)
         self._tts = SapiTextToSpeech()
         self._input_device_id = input_device_id
@@ -73,7 +77,9 @@ class VoicePipeline(ManagedComponent):
 
     def status(self) -> dict[str, Any]:
         profile = resolve_profile(self._profile_provider())
-        model, model_path = resolve_model(self._models_root, profile.name)
+        model, model_path = resolve_model(
+            self._models_root, profile.name, self._recognition_locale_provider()
+        )
         self._stt.configure(model_path)
         dependencies = all(
             importlib.util.find_spec(name) is not None
@@ -94,6 +100,14 @@ class VoicePipeline(ManagedComponent):
             "wake_name": self._wake_name_provider(),
             "wake_monitor_active": bool(self._wake_thread and self._wake_thread.is_alive()),
         }
+
+    def _configure_stt(self) -> None:
+        _, model_path = resolve_model(
+            self._models_root,
+            self._profile_provider(),
+            self._recognition_locale_provider(),
+        )
+        self._stt.configure(model_path)
 
     def sync_wake_word(self) -> None:
         thread = self._wake_thread
@@ -176,6 +190,7 @@ class VoicePipeline(ManagedComponent):
                     pcm = self._wake_candidate()
                     if not pcm or self._wake_stop.is_set():
                         continue
+                    self._configure_stt()
                     text = self._stt.transcribe(pcm, self.SAMPLE_RATE)
                 except (OSError, RuntimeError) as error:
                     self._events.publish("wake.monitor.error", {"error": str(error)}, source="wake")
@@ -462,6 +477,7 @@ class VoicePipeline(ManagedComponent):
                 return
             if not pcm:
                 raise RuntimeError("no_speech_detected")
+            self._configure_stt()
             for turn in range(3):
                 self._events.publish("speech.transcription.started", source="voice")
                 text = self._stt.transcribe(pcm, self.SAMPLE_RATE)
