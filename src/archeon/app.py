@@ -95,6 +95,7 @@ class ArcheonApplication:
             auth_handler=self.handle_auth,
             session_handler=self.handle_session,
             media_resource_handler=self.media.artwork,
+            personalization_resource_handler=self._personalization_resource,
             port=port,
         )
         self.lifecycle = LifecycleManager(
@@ -256,6 +257,26 @@ class ArcheonApplication:
             except (OSError, ValueError, RuntimeError) as error:
                 return {"ok": False, "error": str(error)}
         try:
+            if action == "appearance.choose":
+                from archeon.ui.native_dialogs import choose_visual_file
+
+                kind = str(payload.get("kind", ""))
+                selected = choose_visual_file(kind)
+                if not selected:
+                    return {"ok": True, "cancelled": True}
+                path = Path(selected)
+                max_bytes = 2_000_000_000 if kind == "video" else 50_000_000
+                allowed = {"image": {".png", ".jpg", ".jpeg", ".webp", ".bmp"}, "video": {".mp4", ".webm", ".m4v"}, "logo": {".png", ".jpg", ".jpeg", ".webp"}}
+                if kind not in allowed or path.suffix.casefold() not in allowed[kind] or not path.is_file() or path.stat().st_size > max_bytes:
+                    return {"ok": False, "error": "invalid_visual_file"}
+                changes = {"appearance": {"logo_path": str(path)}} if kind == "logo" else {"appearance": {"background_type": kind, "background_path": str(path)}}
+                settings = self.configuration.update_settings(changes)
+                self.events.publish("appearance.changed", {"kind": kind}, source="application")
+                return {"ok": True, "settings": settings}
+            if action == "appearance.clear":
+                settings = self.configuration.update_settings({"appearance": {"background_type": "default", "background_path": None, "logo_path": None}})
+                self.events.publish("appearance.changed", {"kind": "default"}, source="application")
+                return {"ok": True, "settings": settings}
             if action == "media.load":
                 paths = payload.get("paths")
                 if not isinstance(paths, list) or not all(isinstance(path, str) for path in paths):
@@ -305,6 +326,14 @@ class ArcheonApplication:
             return selected
         conversation = self.configuration.config.language.conversation
         return conversation if conversation != "auto" else self.configuration.config.language.interface
+
+    def _personalization_resource(self, kind: str) -> Path | None:
+        configured = self.configuration.config.appearance
+        candidate = configured.background_path if kind == "background" else configured.logo_path if kind == "logo" else None
+        if not candidate:
+            return None
+        path = Path(candidate).expanduser()
+        return path if path.is_file() else None
 
     def handle_auth(
         self, operation: str, payload: dict[str, Any], session_token: str

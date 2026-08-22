@@ -195,6 +195,22 @@
     const resolved = theme === "system" && matchMedia("(prefers-color-scheme: light)").matches ? "light" : theme;
     document.body.classList.toggle("theme-light", resolved === "light");
     document.body.classList.toggle("reduce-motion", Boolean(settings.appearance?.reduced_motion));
+    document.body.classList.toggle("high-contrast", Boolean(settings.appearance?.high_contrast));
+    document.documentElement.style.fontSize=`${settings.appearance?.text_scale||100}%`;
+    document.body.style.zoom=String((settings.appearance?.ui_scale||100)/100);
+    const curtain=document.querySelector(".background-curtain");
+    const video=document.getElementById("background-video");
+    const appearance=settings.appearance||{};
+    const resource=`/personalization/background?token=${encodeURIComponent(runtime.token)}&v=${settings.sync?.version||0}`;
+    curtain.style.filter=`blur(${appearance.background_blur||0}px)`;
+    curtain.style.opacity=String((appearance.background_opacity??100)/100);
+    curtain.style.backgroundSize=appearance.background_fit||"cover";
+    if(appearance.background_type==="image"&&appearance.background_path){video.pause();video.removeAttribute("src");video.hidden=true;curtain.style.backgroundImage=`linear-gradient(rgba(0,0,0,.22),rgba(0,0,0,.36)),url("${resource}")`;}
+    else if(appearance.background_type==="video"&&appearance.background_path){curtain.style.backgroundImage="linear-gradient(rgba(0,0,0,.2),rgba(0,0,0,.34))";video.style.objectFit=appearance.background_fit||"cover";if(video.src!==new URL(resource,location.href).href)video.src=resource;video.hidden=false;video.play().catch(()=>{});}
+    else{video.pause();video.removeAttribute("src");video.hidden=true;curtain.style.backgroundImage="";}
+    const logo=appearance.logo_path?`/personalization/logo?token=${encodeURIComponent(runtime.token)}&v=${settings.sync?.version||0}`:"/logo_asitente.png";
+    document.querySelectorAll("#core-art,.auth-brand img").forEach(node=>{if(!node.closest(".state-music"))node.src=logo;});
+    const clock=document.querySelector(".clock-widget");clock.hidden=settings.clock?.visible===false;document.getElementById("clock-date").hidden=settings.clock?.show_date===false;
     if (document.body.classList.contains("state-idle")) stateElement.textContent = settings.assistant?.wake_name || "Archeon";
   }
   document.getElementById("settings-open").addEventListener("click", async () => {
@@ -210,6 +226,18 @@
     document.getElementById("settings-wake-name").value=result.settings.assistant.wake_name;
     document.getElementById("settings-context-language").checked=result.settings.assistant.context_language_enabled;
     document.getElementById("settings-wake-enabled").checked=result.settings.assistant.wake_word_enabled;
+    document.getElementById("settings-background-type").value=result.settings.appearance.background_type;
+    document.getElementById("settings-background-fit").value=result.settings.appearance.background_fit;
+    document.getElementById("settings-background-blur").value=result.settings.appearance.background_blur;
+    document.getElementById("settings-background-opacity").value=result.settings.appearance.background_opacity;
+    document.getElementById("settings-ui-scale").value=result.settings.appearance.ui_scale;
+    document.getElementById("settings-text-scale").value=result.settings.appearance.text_scale;
+    document.getElementById("settings-reduced-motion").checked=result.settings.appearance.reduced_motion;
+    document.getElementById("settings-high-contrast").checked=result.settings.appearance.high_contrast;
+    document.getElementById("settings-clock-visible").checked=result.settings.clock.visible;
+    document.getElementById("settings-clock-24h").checked=result.settings.clock.use_24_hour;
+    document.getElementById("settings-clock-seconds").checked=result.settings.clock.show_seconds;
+    document.getElementById("settings-clock-date").checked=result.settings.clock.show_date;
     document.getElementById("settings-startup-sound").checked=result.settings.startup.startup_sound;
     document.getElementById("settings-cloud").checked=result.settings.privacy.cloud_processing_allowed;
     document.getElementById("settings-message").textContent="";
@@ -220,9 +248,10 @@
     const interfaceLanguage=document.getElementById("settings-interface-language").value;
     const result=await postAction("settings.update",{changes:{
       language:{interface:interfaceLanguage,conversation:document.getElementById("settings-conversation-language").value},
-      appearance:{theme:document.getElementById("settings-theme").value},
+      appearance:{theme:document.getElementById("settings-theme").value,background_type:document.getElementById("settings-background-type").value,background_fit:document.getElementById("settings-background-fit").value,background_blur:Number(document.getElementById("settings-background-blur").value),background_opacity:Number(document.getElementById("settings-background-opacity").value),reduced_motion:document.getElementById("settings-reduced-motion").checked,high_contrast:document.getElementById("settings-high-contrast").checked,ui_scale:Number(document.getElementById("settings-ui-scale").value),text_scale:Number(document.getElementById("settings-text-scale").value)},
       assistant:{wake_name:document.getElementById("settings-wake-name").value,wake_word_enabled:document.getElementById("settings-wake-enabled").checked,activation_mode:document.getElementById("settings-wake-enabled").checked?"wake_word":"push_to_talk",context_language_enabled:document.getElementById("settings-context-language").checked},
       startup:{startup_sound:document.getElementById("settings-startup-sound").checked},
+      clock:{visible:document.getElementById("settings-clock-visible").checked,use_24_hour:document.getElementById("settings-clock-24h").checked,show_seconds:document.getElementById("settings-clock-seconds").checked,show_date:document.getElementById("settings-clock-date").checked},
       privacy:{cloud_processing_allowed:document.getElementById("settings-cloud").checked},
     }});
     const message=document.getElementById("settings-message");
@@ -230,6 +259,8 @@
     applySettings(result.settings); await loadLocale(interfaceLanguage); document.getElementById("language-select").value=interfaceLanguage;
     message.textContent=t("settings.saved"); setTimeout(()=>settingsDialog.close(),450);
   });
+  [["settings-choose-image","image"],["settings-choose-video","video"],["settings-choose-logo","logo"]].forEach(([id,kind])=>document.getElementById(id).addEventListener("click",async()=>{const result=await postAction("appearance.choose",{kind});if(result.ok&&!result.cancelled)applySettings(result.settings);}));
+  document.getElementById("settings-clear-visuals").addEventListener("click",async()=>{const result=await postAction("appearance.clear");if(result.ok)applySettings(result.settings);});
   document.getElementById("ghost-button").addEventListener("click", () => postAction("window.ghost"));
   document.getElementById("voice-button").addEventListener("click", async () => {
     const stopping = ["listening","transcribing","thinking","speaking"].some((state)=>document.body.classList.contains(`state-${state}`));
@@ -281,7 +312,7 @@
     events.addEventListener("music.stopped",()=>{art.src="/logo_asitente.png";musicPanel.classList.remove("active");title.textContent=t("music.none");artist.textContent="";setState("idle","state.ready");});
   }
 
-  function updateClock(){const now=new Date();document.getElementById("clock-time").textContent=now.toLocaleTimeString(document.documentElement.lang,{hour:"2-digit",minute:"2-digit"});document.getElementById("clock-date").textContent=now.toLocaleDateString(document.documentElement.lang,{weekday:"long",day:"numeric",month:"long"});setTimeout(updateClock,60000-(Date.now()%60000));}
+  function updateClock(){const now=new Date(),clock=settingsCache?.clock||{};document.getElementById("clock-time").textContent=now.toLocaleTimeString(document.documentElement.lang,{hour:"2-digit",minute:"2-digit",second:clock.show_seconds?"2-digit":undefined,hour12:clock.use_24_hour?false:undefined});document.getElementById("clock-date").textContent=now.toLocaleDateString(document.documentElement.lang,{weekday:"long",day:"numeric",month:"long"});const unit=clock.show_seconds?1000:60000;setTimeout(updateClock,unit-(Date.now()%unit));}
   document.getElementById("language-select").addEventListener("change",(event)=>loadLocale(event.target.value));
 
   (async()=>{

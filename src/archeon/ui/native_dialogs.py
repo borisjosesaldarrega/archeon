@@ -22,3 +22,24 @@ def choose_audio_files() -> list[str]:
         return [str(path) for path in selected]
     finally:
         root.destroy()
+
+
+def choose_visual_file(kind: str) -> str | None:
+    import tkinter as tk
+    from tkinter import filedialog
+
+    choices = {
+        "image": (("Imágenes", "*.png *.jpg *.jpeg *.webp *.bmp"),),
+        "video": (("Videos", "*.mp4 *.webm *.m4v"),),
+        "logo": (("Logos", "*.png *.jpg *.jpeg *.webp"),),
+    }
+    if kind not in choices:
+        raise ValueError("invalid_visual_kind")
+    root = tk.Tk(className="ARCHEONVisualPicker")
+    root.withdraw()
+    root.attributes("-topmost", True)
+    try:
+        value = filedialog.askopenfilename(parent=root, title="Personalizar ARCHEON", filetypes=choices[kind] + (("Todos", "*.*"),))
+        return str(value) if value else None
+    finally:
+        root.destroy()

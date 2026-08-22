@@ -192,6 +192,21 @@ class ApplicationUITests(unittest.TestCase):
         self.application.stop()
         self.assertFalse(self.application.ui_server.thread_alive)
 
+    def test_personalization_video_supports_bounded_range_streaming(self) -> None:
+        video = Path(self.temp.name) / "background.mp4"
+        video.write_bytes(b"0123456789")
+        self.application.configuration.update_settings(
+            {"appearance": {"background_type": "video", "background_path": str(video)}}
+        )
+        request = urllib.request.Request(
+            self.application.ui_server.url + "/personalization/background",
+            headers={"X-Archeon-Token": self.application.ui_server.token, "Range": "bytes=2-5"},
+        )
+        with urllib.request.urlopen(request, timeout=2) as response:
+            self.assertEqual(response.status, 206)
+            self.assertEqual(response.read(), b"2345")
+            self.assertEqual(response.headers["Content-Range"], "bytes 2-5/10")
+
 
 if __name__ == "__main__":
     unittest.main()

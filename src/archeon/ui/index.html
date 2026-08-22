@@ -8,6 +8,7 @@
 </head>
 <body class="state-idle auth-active">
   <div class="background-curtain" aria-hidden="true"></div>
+  <video id="background-video" class="background-video" muted loop playsinline preload="metadata" hidden></video>
 
   <main id="auth-shell" class="auth-shell">
     <div class="auth-brand">
@@ -148,10 +149,23 @@
           <label><span data-i18n="settings.conversation_language">Idioma de conversación</span><select id="settings-conversation-language"></select></label>
           <label><span data-i18n="settings.theme">Tema</span><select id="settings-theme"><option value="system">Sistema</option><option value="dark">Oscuro</option><option value="light">Claro</option></select></label>
           <label><span data-i18n="settings.wake_name">Nombre de activación</span><input id="settings-wake-name" maxlength="24"></label>
+          <label><span>Fondo</span><select id="settings-background-type"><option value="default">Predeterminado</option><option value="image">Imagen</option><option value="video">Video</option></select></label>
+          <label><span>Ajuste del fondo</span><select id="settings-background-fit"><option value="cover">Cubrir</option><option value="contain">Contener</option><option value="fill">Estirar</option></select></label>
+          <label><span>Desenfoque</span><input id="settings-background-blur" type="range" min="0" max="30"></label>
+          <label><span>Opacidad</span><input id="settings-background-opacity" type="range" min="10" max="100"></label>
+          <label><span>Escala UI</span><input id="settings-ui-scale" type="range" min="80" max="130"></label>
+          <label><span>Escala de texto</span><input id="settings-text-scale" type="range" min="80" max="150"></label>
         </div>
+        <div class="settings-actions"><button id="settings-choose-image" class="outline" type="button">Elegir imagen</button><button id="settings-choose-video" class="outline" type="button">Elegir video</button><button id="settings-choose-logo" class="outline" type="button">Elegir logo</button><button id="settings-clear-visuals" class="ghost-action" type="button">Restablecer visuales</button></div>
         <label class="check-row"><input id="settings-context-language" type="checkbox"><span data-i18n="settings.context_language">Responder según el idioma del contexto</span></label>
         <label class="check-row"><input id="settings-wake-enabled" type="checkbox"><span data-i18n="settings.wake_enabled">Activación local por voz</span></label>
         <label class="check-row"><input id="settings-startup-sound" type="checkbox"><span data-i18n="settings.startup_sound">Sonido al iniciar</span></label>
+        <label class="check-row"><input id="settings-reduced-motion" type="checkbox"><span>Reducir movimiento</span></label>
+        <label class="check-row"><input id="settings-high-contrast" type="checkbox"><span>Alto contraste</span></label>
+        <label class="check-row"><input id="settings-clock-visible" type="checkbox"><span>Mostrar reloj</span></label>
+        <label class="check-row"><input id="settings-clock-24h" type="checkbox"><span>Formato de 24 horas</span></label>
+        <label class="check-row"><input id="settings-clock-seconds" type="checkbox"><span>Mostrar segundos</span></label>
+        <label class="check-row"><input id="settings-clock-date" type="checkbox"><span>Mostrar fecha</span></label>
         <label class="check-row"><input id="settings-cloud" type="checkbox"><span data-i18n="settings.cloud">Permitir procesamiento cloud</span></label>
         <p class="provider-note" data-i18n="settings.cloud_note">Las capturas permanecen bloqueadas para cloud mediante un permiso independiente.</p>
         <p id="settings-message" class="auth-message" role="status"></p>

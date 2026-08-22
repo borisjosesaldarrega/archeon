@@ -39,6 +39,7 @@ class UIServer(ManagedComponent):
         auth_handler: Callable[[str, dict[str, Any], str], dict[str, Any]],
         session_handler: Callable[[str], dict[str, Any]],
         media_resource_handler: Callable[[str], tuple[str, bytes] | None] | None = None,
+        personalization_resource_handler: Callable[[str], Path | None] | None = None,
         port: int = 0,
     ) -> None:
         super().__init__("ui_server")
@@ -49,6 +50,7 @@ class UIServer(ManagedComponent):
         self._auth_handler = auth_handler
         self._session_handler = session_handler
         self._media_resource_handler = media_resource_handler
+        self._personalization_resource_handler = personalization_resource_handler
         self._requested_port = port
         self._token = secrets.token_urlsafe(24)
         self._server: _Server | None = None
@@ -93,7 +95,7 @@ class UIServer(ManagedComponent):
                 self.send_header(
                     "Content-Security-Policy",
                     "default-src 'self'; script-src 'self'; style-src 'self'; "
-                    "img-src 'self' data: blob:; connect-src 'self'",
+                    "img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'",
                 )
                 if length is not None:
                     self.send_header("Content-Length", str(length))
@@ -174,6 +176,46 @@ class UIServer(ManagedComponent):
                     self.send_header("Cache-Control", "private, max-age=86400")
                     self.end_headers()
                     self.wfile.write(body)
+                    return
+                if path.startswith("/personalization/"):
+                    if not self._authorized() or owner._personalization_resource_handler is None:
+                        self.send_error(HTTPStatus.UNAUTHORIZED)
+                        return
+                    file_path = owner._personalization_resource_handler(path.removeprefix("/personalization/"))
+                    if file_path is None or not file_path.is_file():
+                        self.send_error(HTTPStatus.NOT_FOUND)
+                        return
+                    size = file_path.stat().st_size
+                    start, end, status = 0, max(0, size - 1), HTTPStatus.OK
+                    range_header = self.headers.get("Range", "")
+                    if range_header.startswith("bytes="):
+                        try:
+                            left, right = range_header[6:].split("-", 1)
+                            start = int(left or 0)
+                            end = min(size - 1, int(right) if right else size - 1)
+                            if start < 0 or end < start or start >= size:
+                                raise ValueError
+                            status = HTTPStatus.PARTIAL_CONTENT
+                        except ValueError:
+                            self.send_error(HTTPStatus.REQUESTED_RANGE_NOT_SATISFIABLE)
+                            return
+                    length = end - start + 1
+                    self.send_response(status)
+                    self._security_headers(mimetypes.guess_type(file_path.name)[0] or "application/octet-stream", length)
+                    self.send_header("Accept-Ranges", "bytes")
+                    self.send_header("Cache-Control", "private, max-age=3600")
+                    if status == HTTPStatus.PARTIAL_CONTENT:
+                        self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+                    self.end_headers()
+                    with file_path.open("rb") as source:
+                        source.seek(start)
+                        remaining = length
+                        while remaining:
+                            chunk = source.read(min(64 * 1024, remaining))
+                            if not chunk:
+                                break
+                            self.wfile.write(chunk)
+                            remaining -= len(chunk)
                     return
                 target = {
                     "/": "index.html",
