@@ -75,6 +75,38 @@ class ToolAndProviderTests(unittest.TestCase):
         )
         self.assertFalse(decision.allowed)
 
+    def test_high_level_approval_modes_preserve_risk_boundaries(self) -> None:
+        self.config.update_settings({"approval": {"mode": "balanced"}})
+        read = self.permissions.evaluate(
+            ["filesystem.read"], risk=RiskLevel.READ_ONLY,
+            action="read", reason="test",
+        )
+        write = self.permissions.evaluate(
+            ["filesystem.write"], risk=RiskLevel.LOW,
+            action="write", reason="test",
+        )
+        self.assertTrue(read.allowed)
+        self.assertFalse(write.allowed)
+
+        self.config.update_settings({"approval": {"mode": "full_control"}})
+        control = self.permissions.evaluate(
+            ["desktop.control"], risk=RiskLevel.MEDIUM,
+            action="control", reason="test",
+        )
+        critical = self.permissions.evaluate(
+            ["account.delete"], risk=RiskLevel.CRITICAL,
+            action="delete", reason="test",
+        )
+        self.assertTrue(control.allowed)
+        self.assertFalse(critical.allowed)
+
+        self.permissions.set_state("filesystem.read", PermissionState.DENIED)
+        denied = self.permissions.evaluate(
+            ["filesystem.read"], risk=RiskLevel.READ_ONLY,
+            action="read", reason="test",
+        )
+        self.assertFalse(denied.allowed)
+
     def test_real_system_status_and_orchestrator(self) -> None:
         system = DeviceSystemEngine(self.tools)
         system.start()
@@ -95,6 +127,26 @@ class ToolAndProviderTests(unittest.TestCase):
         self.assertTrue(response.ok)
         self.assertEqual(response.message, "System status retrieved.")
         system.stop()
+
+    def test_archeon_identity_is_local_deterministic_and_does_not_load_a_model(self) -> None:
+        self.tools.start()
+        orchestrator = Orchestrator(self.bus, self.tools)
+        response = orchestrator.handle_text("¿Quién eres y quién es tu creador?")
+        self.assertTrue(response.ok)
+        self.assertIn("Boris Saldarrega", response.message)
+        self.assertIn("enero de 2020", response.message)
+        self.assertEqual(response.data["route"], "local_identity")
+
+    def test_archeon_product_help_knows_settings_without_exposing_internal_paths(self) -> None:
+        self.tools.start()
+        orchestrator = Orchestrator(self.bus, self.tools)
+        response = orchestrator.handle_text("¿Cómo cambio el color y el logo de Archeon?")
+        self.assertTrue(response.ok)
+        self.assertEqual(response.data["route"], "product_help")
+        self.assertEqual(response.data["topic"], "personalization")
+        self.assertIn("Personalización", response.message)
+        self.assertNotIn("AppData", response.message)
+        self.assertNotIn(".gguf", response.message)
 
     def test_database_provider_stays_unloaded(self) -> None:
         database = DatabaseManager()

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont, ImageOps
@@ -29,13 +28,10 @@ def main() -> int:
     draw = ImageDraw.Draw(image)
     draw.ellipse((center - radius, center - radius, center + radius, center + radius), outline=(8, 125, 153, 180), width=1)
 
-    actions = (("↗", "Abrir"), ("●", "Escuchar"), ("A", "Apps"), ("G", "Juegos"), ("★", "Favoritos"), ("⚙", "Configuración"))
+    actions = (("⌂", "Abrir"), ("🎙", "Escuchar"), ("▦", "Apps"), ("🎮", "Juegos"), ("★", "Favoritos"), ("⚙", "Configuración"), ("＋", "Añadir atajo"))
     symbol_font = font("seguisym.ttf", 18)
     label_font = font("segoeui.ttf", 10)
     for (icon, _label), (x, y) in zip(actions, radial_layout(len(actions), center, radius)):
-        angle = math.atan2(y - center, x - center)
-        start = (center + math.cos(angle) * orb_size / 2, center + math.sin(angle) * orb_size / 2)
-        draw.line((start, (x, y)), fill=(8, 125, 153, 190), width=1)
         draw.ellipse((x - node_half, y - node_half, x + node_half, y + node_half), fill=(7, 26, 33, 255), outline=(0, 217, 245, 255), width=2)
         draw.text((x, y), icon, font=symbol_font, fill=(229, 255, 255), anchor="mm")
 

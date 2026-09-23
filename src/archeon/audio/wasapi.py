@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from queue import Empty, Full, Queue
 from threading import Event
+import time
 from typing import Any
 
 from .manager import AudioSessionConfig
@@ -15,6 +16,11 @@ class WasapiSharedCapture:
         self._config: AudioSessionConfig | None = None
         self._stream: Any = None
         self.device: dict[str, Any] | None = None
+
+    @property
+    def active(self) -> bool:
+        stream = self._stream
+        return bool(stream is not None and getattr(stream, "active", False))
 
     @staticmethod
     def devices() -> list[dict[str, Any]]:
@@ -40,6 +46,21 @@ class WasapiSharedCapture:
         stop: Event,
         consume: Callable[[bytes], bool],
     ) -> None:
+        import comtypes
+
+        comtypes.CoInitialize()
+        try:
+            self._capture_initialized(stop, consume)
+        finally:
+            self.close()
+            comtypes.CoUninitialize()
+
+    def _capture_initialized(
+        self,
+        stop: Event,
+        consume: Callable[[bytes], bool],
+    ) -> None:
+        import audioop
         import sounddevice as sd
 
         assert self._config is not None
@@ -60,9 +81,12 @@ class WasapiSharedCapture:
             raise RuntimeError("selected device is not a WASAPI input")
         self.device = device
         queue: Queue[bytes] = Queue(maxsize=48)
+        native_rate = max(1, int(round(float(device.get("default_samplerate", self._config.sample_rate)))))
+        target_bytes = self._config.sample_rate * self._config.block_ms // 1000 * 2 * self._config.channels
+        conversion_state: Any = None
+        converted_buffer = bytearray()
 
-        def callback(indata, frames, time_info, status) -> None:
-            chunk = bytes(indata)
+        def offer(chunk: bytes) -> None:
             try:
                 queue.put_nowait(chunk)
             except Full:
@@ -72,19 +96,40 @@ class WasapiSharedCapture:
                     pass
                 queue.put_nowait(chunk)
 
-        settings = sd.WasapiSettings(exclusive=False, auto_convert=True)
-        blocksize = self._config.sample_rate * self._config.block_ms // 1000
-        self._stream = sd.RawInputStream(
-            samplerate=self._config.sample_rate,
-            blocksize=blocksize,
-            device=device_id,
-            channels=self._config.channels,
-            dtype="int16",
-            latency="low",
-            extra_settings=settings,
-            callback=callback,
-        )
-        self._stream.start()
+        def callback(indata, frames, time_info, status) -> None:
+            nonlocal conversion_state
+            chunk = bytes(indata)
+            if native_rate != self._config.sample_rate:
+                chunk, conversion_state = audioop.ratecv(
+                    chunk, 2, self._config.channels, native_rate,
+                    self._config.sample_rate, conversion_state,
+                )
+            converted_buffer.extend(chunk)
+            while len(converted_buffer) >= target_bytes:
+                offer(bytes(converted_buffer[:target_bytes]))
+                del converted_buffer[:target_bytes]
+
+        settings = sd.WasapiSettings(exclusive=False)
+        blocksize = native_rate * self._config.block_ms // 1000
+        for attempt in range(2):
+            self._stream = sd.RawInputStream(
+                samplerate=native_rate,
+                blocksize=blocksize,
+                device=device_id,
+                channels=self._config.channels,
+                dtype="int16",
+                latency="low",
+                extra_settings=settings,
+                callback=callback,
+            )
+            try:
+                self._stream.start()
+                break
+            except sd.PortAudioError:
+                self.close()
+                if attempt or stop.is_set():
+                    raise
+                time.sleep(0.15)
         try:
             while not stop.is_set():
                 try:

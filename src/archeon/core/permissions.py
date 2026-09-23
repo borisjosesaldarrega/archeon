@@ -70,6 +70,7 @@ class PermissionEngine:
         action: str,
         reason: str,
         confirmer: Confirmer | None = None,
+        ephemeral_grants: Iterable[str] = (),
     ) -> PermissionDecision:
         required = tuple(sorted(set(permissions)))
         if not required:
@@ -78,9 +79,21 @@ class PermissionEngine:
         denied = [permission for permission, state in states.items() if state is PermissionState.DENIED]
         if denied:
             return PermissionDecision(False, f"denied: {', '.join(denied)}")
+        scoped = set(ephemeral_grants)
+        states = {
+            permission: (PermissionState.SESSION if permission in scoped else state)
+            for permission, state in states.items()
+        }
         pending = [permission for permission, state in states.items() if state is PermissionState.ASK]
         if not pending:
             return PermissionDecision(True, "granted")
+        approval_mode = self._configuration.config.approval.mode
+        if approval_mode == "balanced" and risk is RiskLevel.READ_ONLY:
+            return PermissionDecision(True, "read-only action allowed by balanced approval mode")
+        if approval_mode == "full_control" and risk in {
+            RiskLevel.READ_ONLY, RiskLevel.LOW, RiskLevel.MEDIUM,
+        }:
+            return PermissionDecision(True, "action allowed by full-control approval mode")
         if confirmer is None:
             return PermissionDecision(False, f"confirmation required: {', '.join(pending)}")
         request = PermissionRequest(tuple(pending), risk, action, reason)
@@ -91,4 +104,3 @@ class PermissionEngine:
 
     def clear_session(self) -> None:
         self._session_grants.clear()
-

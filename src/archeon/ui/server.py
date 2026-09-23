@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 import mimetypes
+import os
 import secrets
+import urllib.request
 from collections.abc import Callable
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -17,9 +19,10 @@ from urllib.parse import parse_qs, urlparse
 
 from archeon.core.events import EventBus
 from archeon.core.lifecycle import ManagedComponent
+from archeon.core.paths import AppPaths, ResourceManager
 
 
-UI_ROOT = Path(__file__).resolve().parent
+UI_ROOT = ResourceManager(AppPaths.discover()).ui_dir
 MAX_BODY_BYTES = 32 * 1024
 
 
@@ -33,14 +36,18 @@ class UIServer(ManagedComponent):
         self,
         events: EventBus,
         *,
-        command_handler: Callable[[str], dict[str, Any]],
+        command_handler: Callable[[str, list[str]], dict[str, Any]],
         action_handler: Callable[[str, dict[str, Any]], dict[str, Any]],
         health_handler: Callable[[], dict[str, Any]],
         auth_handler: Callable[[str, dict[str, Any], str], dict[str, Any]],
         session_handler: Callable[[str], dict[str, Any]],
+        attachment_handler: Callable[[str, str, int, Any], dict[str, Any]] | None = None,
+        cloud_upload_handler: Callable[[str, str, int, Any, str, str], dict[str, Any]] | None = None,
         media_resource_handler: Callable[[str], tuple[str, bytes] | None] | None = None,
+        media_stream_handler: Callable[[], str | Path | None] | None = None,
         personalization_resource_handler: Callable[[str], Path | None] | None = None,
         port: int = 0,
+        ui_root: Path | None = None,
     ) -> None:
         super().__init__("ui_server")
         self._events = events
@@ -49,10 +56,18 @@ class UIServer(ManagedComponent):
         self._health_handler = health_handler
         self._auth_handler = auth_handler
         self._session_handler = session_handler
+        self._attachment_handler = attachment_handler
+        self._cloud_upload_handler = cloud_upload_handler
         self._media_resource_handler = media_resource_handler
+        self._media_stream_handler = media_stream_handler
         self._personalization_resource_handler = personalization_resource_handler
         self._requested_port = port
-        self._token = secrets.token_urlsafe(24)
+        self._ui_root = (ui_root or UI_ROOT).resolve()
+        # Android debug builds connect through ``adb reverse`` and need the
+        # same short-lived token as the desktop runtime. Production keeps the
+        # cryptographically random per-process token.
+        development_token = os.environ.get("ARCHEON_DEV_UI_TOKEN", "").strip()
+        self._token = development_token if len(development_token) >= 24 else secrets.token_urlsafe(24)
         self._server: _Server | None = None
         self._thread: Thread | None = None
         self._stopping = ThreadEvent()
@@ -91,12 +106,14 @@ class UIServer(ManagedComponent):
                 self.send_header("Content-Type", content_type)
                 self.send_header("X-Content-Type-Options", "nosniff")
                 self.send_header("X-Frame-Options", "DENY")
-                self.send_header("Referrer-Policy", "no-referrer")
+                self.send_header("Referrer-Policy", "strict-origin-when-cross-origin")
                 self.send_header(
                     "Content-Security-Policy",
                     "default-src 'self'; script-src 'self'; style-src 'self'; "
-                    "img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'",
+                    "img-src 'self' data: blob: https://i.ytimg.com; media-src 'self' blob:; "
+                    "connect-src 'self'; frame-src https://www.youtube.com https://www.youtube-nocookie.com",
                 )
+                self.send_header("Cross-Origin-Resource-Policy", "same-origin")
                 if length is not None:
                     self.send_header("Content-Length", str(length))
 
@@ -108,7 +125,9 @@ class UIServer(ManagedComponent):
 
             def _session_authorized(self) -> bool:
                 token = self.headers.get("X-Archeon-Session", "")
-                return bool(owner._session_handler(token).get("ok"))
+                value = owner._session_handler(token)
+                session = value.get("session") if isinstance(value, dict) else None
+                return bool(value.get("ok") and isinstance(session, dict) and not session.get("mfa_required"))
 
             def _json(self, payload: dict[str, Any], status: HTTPStatus = HTTPStatus.OK) -> None:
                 body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
@@ -133,6 +152,9 @@ class UIServer(ManagedComponent):
             def do_GET(self) -> None:  # noqa: N802 - stdlib handler contract
                 path = urlparse(self.path).path
                 if path == "/runtime-config.js":
+                    if not self._authorized():
+                        self._json({"ok": False, "error": "unauthorized"}, HTTPStatus.UNAUTHORIZED)
+                        return
                     with owner._continuation_lock:
                         continuation = owner._continuation_session
                         owner._continuation_session = None
@@ -161,6 +183,85 @@ class UIServer(ManagedComponent):
                     return
                 if path == "/events":
                     self._serve_events()
+                    return
+                if path == "/media/current":
+                    if not self._authorized() or owner._media_stream_handler is None:
+                        self.send_error(HTTPStatus.UNAUTHORIZED)
+                        return
+                    source = owner._media_stream_handler()
+                    if source is None:
+                        self.send_error(HTTPStatus.NOT_FOUND)
+                        return
+                    source_text = str(source)
+                    if source_text.lower().startswith("https://"):
+                        request_headers = {
+                            "Accept": "audio/*,*/*;q=0.8",
+                            "User-Agent": "ARCHEON-Mobile/0.1",
+                        }
+                        range_header = self.headers.get("Range", "")
+                        if range_header.startswith("bytes="):
+                            request_headers["Range"] = range_header
+                        request = urllib.request.Request(source_text, headers=request_headers)
+                        try:
+                            with urllib.request.urlopen(request, timeout=20) as response:
+                                status = HTTPStatus.PARTIAL_CONTENT if getattr(response, "status", 200) == 206 else HTTPStatus.OK
+                                length_header = response.headers.get("Content-Length")
+                                length = int(length_header) if length_header and length_header.isdigit() else None
+                                self.send_response(status)
+                                self._security_headers(response.headers.get_content_type() or "audio/mpeg", length)
+                                self.send_header("Accept-Ranges", response.headers.get("Accept-Ranges", "bytes"))
+                                content_range = response.headers.get("Content-Range")
+                                if content_range:
+                                    self.send_header("Content-Range", content_range)
+                                self.send_header("Cache-Control", "no-store")
+                                self.end_headers()
+                                while True:
+                                    chunk = response.read(64 * 1024)
+                                    if not chunk:
+                                        break
+                                    self.wfile.write(chunk)
+                        except (OSError, ValueError):
+                            self.send_error(HTTPStatus.BAD_GATEWAY)
+                        return
+                    try:
+                        file_path = Path(source_text).expanduser().resolve(strict=True)
+                    except OSError:
+                        self.send_error(HTTPStatus.NOT_FOUND)
+                        return
+                    if not file_path.is_file():
+                        self.send_error(HTTPStatus.NOT_FOUND)
+                        return
+                    size = file_path.stat().st_size
+                    start, end, status = 0, max(0, size - 1), HTTPStatus.OK
+                    range_header = self.headers.get("Range", "")
+                    if range_header.startswith("bytes="):
+                        try:
+                            left, right = range_header[6:].split("-", 1)
+                            start = int(left or 0)
+                            end = min(size - 1, int(right) if right else size - 1)
+                            if start < 0 or end < start or start >= size:
+                                raise ValueError
+                            status = HTTPStatus.PARTIAL_CONTENT
+                        except ValueError:
+                            self.send_error(HTTPStatus.REQUESTED_RANGE_NOT_SATISFIABLE)
+                            return
+                    length = end - start + 1
+                    self.send_response(status)
+                    self._security_headers(mimetypes.guess_type(file_path.name)[0] or "audio/mpeg", length)
+                    self.send_header("Accept-Ranges", "bytes")
+                    self.send_header("Cache-Control", "no-store")
+                    if status == HTTPStatus.PARTIAL_CONTENT:
+                        self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+                    self.end_headers()
+                    with file_path.open("rb") as stream:
+                        stream.seek(start)
+                        remaining = length
+                        while remaining:
+                            chunk = stream.read(min(64 * 1024, remaining))
+                            if not chunk:
+                                break
+                            self.wfile.write(chunk)
+                            remaining -= len(chunk)
                     return
                 if path.startswith("/media/art/"):
                     if not self._authorized() or owner._media_resource_handler is None:
@@ -226,8 +327,8 @@ class UIServer(ManagedComponent):
                 if not target or ".." in Path(target).parts:
                     self.send_error(HTTPStatus.NOT_FOUND)
                     return
-                file_path = UI_ROOT / target
-                if not file_path.is_file() or UI_ROOT not in file_path.resolve().parents:
+                file_path = owner._ui_root / target
+                if not file_path.is_file() or owner._ui_root not in file_path.resolve().parents:
                     self.send_error(HTTPStatus.NOT_FOUND)
                     return
                 body = file_path.read_bytes()
@@ -245,11 +346,54 @@ class UIServer(ManagedComponent):
                 if not self._authorized():
                     self._json({"ok": False, "error": "unauthorized"}, HTTPStatus.UNAUTHORIZED)
                     return
+                parsed = urlparse(self.path)
+                path = parsed.path
+                if path == "/api/attachment":
+                    if not self._session_authorized():
+                        self._json({"ok": False, "error": "session_required"}, HTTPStatus.UNAUTHORIZED)
+                        return
+                    if owner._attachment_handler is None:
+                        self._json({"ok": False, "error": "attachments_unavailable"}, HTTPStatus.NOT_IMPLEMENTED)
+                        return
+                    try:
+                        length = int(self.headers.get("Content-Length", "0"))
+                    except ValueError:
+                        length = 0
+                    name = parse_qs(parsed.query).get("name", [""])[0]
+                    result = owner._attachment_handler(
+                        name,
+                        self.headers.get("Content-Type", "application/octet-stream"),
+                        length,
+                        self.rfile,
+                    )
+                    self._json(result, HTTPStatus.OK if result.get("ok") else HTTPStatus.BAD_REQUEST)
+                    return
+                if path == "/api/cloud-file":
+                    if not self._session_authorized():
+                        self._json({"ok": False, "error": "session_required"}, HTTPStatus.UNAUTHORIZED)
+                        return
+                    if owner._cloud_upload_handler is None:
+                        self._json({"ok": False, "error": "cloud_upload_unavailable"}, HTTPStatus.NOT_IMPLEMENTED)
+                        return
+                    try:
+                        length = int(self.headers.get("Content-Length", "0"))
+                    except ValueError:
+                        length = 0
+                    query = parse_qs(parsed.query)
+                    result = owner._cloud_upload_handler(
+                        query.get("name", [""])[0],
+                        self.headers.get("Content-Type", "application/octet-stream"),
+                        length,
+                        self.rfile,
+                        self.headers.get("X-Archeon-Session", ""),
+                        query.get("conversation_id", [""])[0],
+                    )
+                    self._json(result, HTTPStatus.OK if result.get("ok") else HTTPStatus.BAD_REQUEST)
+                    return
                 payload = self._read_json()
                 if payload is None:
                     self._json({"ok": False, "error": "invalid JSON"}, HTTPStatus.BAD_REQUEST)
                     return
-                path = urlparse(self.path).path
                 if path.startswith("/api/auth/"):
                     operation = path.removeprefix("/api/auth/")
                     result = owner._auth_handler(
@@ -264,10 +408,16 @@ class UIServer(ManagedComponent):
                         self._json({"ok": False, "error": "session_required"}, HTTPStatus.UNAUTHORIZED)
                         return
                     text = payload.get("text")
-                    if not isinstance(text, str) or not text.strip() or len(text) > 2_000:
+                    # Permit long assignments and pasted instructions without
+                    # silently truncating them, while remaining below MAX_BODY.
+                    if not isinstance(text, str) or not text.strip() or len(text) > 16_000:
                         self._json({"ok": False, "error": "invalid text"}, HTTPStatus.BAD_REQUEST)
                         return
-                    self._json(owner._command_handler(text))
+                    attachment_ids = payload.get("attachments", [])
+                    if not isinstance(attachment_ids, list) or not all(isinstance(value, str) for value in attachment_ids):
+                        self._json({"ok": False, "error": "invalid attachments"}, HTTPStatus.BAD_REQUEST)
+                        return
+                    self._json(owner._command_handler(text, attachment_ids))
                     return
                 if path == "/api/action":
                     if not self._session_authorized():
@@ -292,7 +442,8 @@ class UIServer(ManagedComponent):
                     return
                 query = parse_qs(urlparse(self.path).query)
                 session_token = query.get("session", [""])[0]
-                if not owner._session_handler(session_token).get("ok"):
+                session_state = owner._session_handler(session_token)
+                if not session_state.get("ok") or (session_state.get("session") or {}).get("mfa_required"):
                     self._json({"ok": False, "error": "session_required"}, HTTPStatus.UNAUTHORIZED)
                     return
                 self.send_response(HTTPStatus.OK)

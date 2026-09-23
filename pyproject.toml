@@ -4,10 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "archeon"
-version = "10.0.0.dev0"
+version = "10.0.0rc1"
 description = "Lightweight, modular ARCHEON assistant core"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+  "cryptography==50.0.1",
+  "yt-dlp==2026.8.19",
+]
 
 [project.optional-dependencies]
 desktop = ["pywebview==6.2.1"]
@@ -23,6 +26,12 @@ media = [
   "pillow==12.3.0",
   "tinytag==2.3.0",
 ]
+documents = [
+  "openpyxl==3.1.5",
+  "pypdf==6.10.0",
+  "python-docx==1.2.0",
+  "python-pptx==1.0.2",
+]
 
 [project.scripts]
 archeon = "archeon.__main__:main"
@@ -35,3 +44,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "archeon.ui" = ["*.html", "*.css", "*.js", "*.png", "*.ico", "*.wav", "*.mp3", "locales/*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+norecursedirs = ["build-*", "dist-*", "tmp", "tmp-*", ".git", ".venv*"]

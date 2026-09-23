@@ -3,6 +3,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 import sys
+import time
 from pathlib import Path
 from threading import Event
 
@@ -13,6 +14,37 @@ from archeon.voice.catalog import resolve_model
 
 
 class VoiceTests(unittest.TestCase):
+    def test_dictation_repairs_text_without_executing_command(self) -> None:
+        class STT:
+            def transcribe(self, _pcm: bytes, _sample_rate: int) -> str:
+                return "hasme un pe de efe"
+
+            def unload(self) -> None:
+                pass
+
+        events = EventBus()
+        subscription = events.subscribe("speech.dictation.completed")
+        commands: list[str] = []
+        pipeline = VoicePipeline(
+            events,
+            AudioManager(events),
+            lambda text: commands.append(text) or {"ok": True},
+            Path(tempfile.gettempdir()),
+            dictation_repair=lambda _text: "hazme un pdf",
+        )
+        pipeline._capture_utterance = lambda: b"pcm"  # type: ignore[method-assign]
+        pipeline._configure_stt = lambda: None  # type: ignore[method-assign]
+        pipeline._stt = STT()  # type: ignore[assignment]
+        pipeline.sync_wake_word = lambda: True  # type: ignore[method-assign]
+
+        pipeline._run_dictation()
+
+        event = subscription.get(timeout=0.2)
+        self.assertEqual(event.payload["text"], "hazme un pdf")
+        self.assertTrue(event.payload["repaired"])
+        self.assertEqual(commands, [])
+        subscription.close()
+
     def test_recognition_locale_selects_only_an_installed_sidecar_model(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -58,12 +90,134 @@ class VoiceTests(unittest.TestCase):
         pipeline.stop()
         audio.stop()
 
+    def test_manual_listen_suspends_wake_capture_and_restores_it_after_cycle(self) -> None:
+        class FakeStt:
+            name = "fake-stt"
+            available = True
+            loaded = False
+
+            def configure(self, _path: Path) -> None:
+                pass
+
+            def transcribe(self, _pcm: bytes, _rate: int) -> str:
+                return "estado del sistema"
+
+            def unload(self) -> None:
+                pass
+
+        class FakeTts:
+            name = "fake-tts"
+
+            def speak(self, *_args, **_kwargs) -> None:
+                pass
+
+        events = EventBus()
+        audio = AudioManager(events)
+        enabled = {"value": True}
+        pipeline = VoicePipeline(
+            events,
+            audio,
+            lambda text: {"ok": True, "message": text},
+            Path(tempfile.gettempdir()),
+            wake_enabled_provider=lambda: enabled["value"],
+        )
+        pipeline._stt = FakeStt()
+        pipeline._tts = FakeTts()
+        wake_started = Event()
+
+        def wake_candidate() -> bytes:
+            from archeon.audio import AudioMode
+
+            audio.acquire(AudioMode.CAPTURING)
+            wake_started.set()
+            pipeline._wake_stop.wait(1.0)
+            audio.release()
+            return b""
+
+        pipeline._wake_candidate = wake_candidate
+        pipeline._capture_utterance = lambda: b"manual-pcm"
+        audio.start()
+        pipeline.start()
+        self.assertTrue(wake_started.wait(1.0))
+        self.assertTrue(pipeline.start_cycle())
+        cycle = pipeline._thread
+        self.assertIsNotNone(cycle)
+        cycle.join(timeout=2.0)
+        self.assertFalse(cycle.is_alive())
+        deadline = time.monotonic() + 1.0
+        while not pipeline.status()["wake_monitor_active"] and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertTrue(pipeline.status()["wake_monitor_active"])
+        enabled["value"] = False
+        pipeline.stop()
+        audio.stop()
+
     def test_wake_name_detection_is_accent_tolerant_and_keeps_multilingual_command(self) -> None:
         self.assertEqual(VoicePipeline.split_wake_command("Archeón, abre Spotify", "Archeon"), "abre spotify")
         self.assertEqual(VoicePipeline.split_wake_command("Arqueón abre Spotify", "Archeon"), "abre spotify")
+        self.assertEqual(VoicePipeline.split_wake_command("Archi on abre Spotify", "Archeon"), "abre spotify")
+        self.assertEqual(VoicePipeline.split_wake_command("Arche on qué hora es", "Archeon"), "que hora es")
         self.assertEqual(VoicePipeline.split_wake_command("Nova open Spotify", "Nova"), "open spotify")
         self.assertEqual(VoicePipeline.split_wake_command("Nova ouvre Spotify", "Nova"), "ouvre spotify")
         self.assertIsNone(VoicePipeline.split_wake_command("abre Spotify", "Archeon"))
+        self.assertIsNone(VoicePipeline.split_wake_command("archivo abre Spotify", "Archeon"))
+
+    def test_wake_command_is_blocked_when_speaker_is_not_authorized(self) -> None:
+        class FakeStt:
+            def transcribe(self, _pcm, _rate): return "Archeon abre notas"
+            def unload(self): pass
+            def configure(self, _path): pass
+
+        class RejectingVerifier:
+            def public_profiles(self): return [{"id": "owner", "name": "Propietario", "enabled": True}]
+            def verify(self, _pcm): return {"authorized": False, "confidence": 0.41, "profile_id": None}
+
+        events = EventBus()
+        enabled = {"value": True}
+        commands = []
+        rejected = events.subscribe("wake.speaker.rejected")
+        pipeline = VoicePipeline(
+            events, AudioManager(events), lambda text: commands.append(text) or {"ok": True},
+            Path(tempfile.gettempdir()), wake_enabled_provider=lambda: enabled["value"],
+            speaker_verifier=RejectingVerifier(), speaker_verification_enabled_provider=lambda: True,
+        )
+        pipeline._stt = FakeStt()
+        pipeline._configure_stt = lambda: None
+        pipeline._wake_candidate = lambda: enabled.update(value=False) or b"candidate-pcm"
+        pipeline._run_wake_monitor()
+        self.assertEqual(commands, [])
+        self.assertFalse(rejected.get(timeout=0.2).payload["authorized"])
+        rejected.close()
+
+    def test_wake_diagnostics_are_exposed_without_persisting_audio(self) -> None:
+        events = EventBus()
+        pipeline = VoicePipeline(
+            events, AudioManager(events), lambda text: {"ok": True, "message": text},
+            Path(tempfile.gettempdir()) / "missing-archeon-model",
+        )
+        status = pipeline.status()
+        self.assertFalse(status["wake_stream_active"])
+        self.assertEqual(status["wake_frames_received"], 0)
+        self.assertIsNone(status["wake_last_candidate"])
+        self.assertNotIn("pcm", status)
+        self.assertEqual(status["wake_target_sample_rate"], 16_000)
+        self.assertIn("WASAPI", status["wake_backend"])
+        self.assertIn("wake_worker_status", status)
+
+    def test_wake_failures_are_classified_for_advanced_diagnostics(self) -> None:
+        self.assertEqual(
+            VoicePipeline._classify_wake_error(FileNotFoundError("model missing")),
+            "model_missing",
+        )
+        self.assertEqual(
+            VoicePipeline._classify_wake_error(RuntimeError("audio session already active")),
+            "audio_device_busy",
+        )
+        self.assertEqual(
+            VoicePipeline._classify_wake_error(RuntimeError("invalid input device")),
+            "audio_device_unavailable",
+        )
+
     def test_audio_and_model_dependencies_stay_lazy_at_idle(self) -> None:
         events = EventBus()
         audio = AudioManager(events)

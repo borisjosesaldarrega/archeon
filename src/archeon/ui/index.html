@@ -11,7 +11,14 @@
   <div class="background-curtain" aria-hidden="true"></div>
   <video id="background-video" class="background-video" muted loop playsinline preload="metadata" hidden></video>
 
-  <main id="auth-shell" class="auth-shell">
+  <main id="boot-shell" class="boot-shell" aria-live="polite">
+    <img src="/logo_asitente.png" alt="">
+    <span class="boot-spinner" aria-hidden="true"></span>
+    <strong data-i18n="boot.preparing">Preparando ARCHEON</strong>
+    <small data-i18n="boot.loading">Cargando perfil y preferencias…</small>
+  </main>
+
+  <main id="auth-shell" class="auth-shell" hidden>
     <div class="auth-brand">
       <img src="/logo_asitente.png" alt="ARCHEON">
       <div><h1>ARCHEON</h1><p>NEURAL INTERFACE SYSTEM</p></div>
@@ -29,13 +36,23 @@
 
       <form id="auth-login" class="auth-view">
         <button class="back" type="button" data-auth-view="welcome" aria-label="Volver">←</button>
-        <span class="eyebrow" data-i18n="login.channel">CANAL SEGURO</span>
+        <span class="eyebrow"><span data-i18n="login.channel">CANAL SEGURO</span> · 1/2</span>
         <h2 data-i18n="access.login">Iniciar sesión</h2>
         <label><span data-i18n="field.email">Correo electrónico</span><input id="login-email" type="email" autocomplete="username" required></label>
-        <label><span data-i18n="field.password">Contraseña</span><input id="login-password" type="password" autocomplete="current-password" required minlength="8"></label>
+        <label><span data-i18n="field.password">Contraseña</span><span class="password-field"><input id="login-password" type="password" autocomplete="current-password" required minlength="8"><button class="password-toggle" type="button" data-password-target="login-password" aria-label="Mostrar contraseña" title="Mostrar contraseña">◉</button></span></label>
         <p class="provider-note"><span data-i18n="auth.dev_provider">Supabase Auth</span> · DPAPI</p>
         <button class="primary" type="submit" data-i18n="access.login">Iniciar sesión</button>
         <button class="ghost-action" type="button" data-auth-view="forgot" data-i18n="auth.forgot">Olvidé mi contraseña</button>
+        <button class="ghost-action" type="button" data-auth-view="verify" data-i18n="verify.title">Verifica tu cuenta</button>
+      </form>
+
+      <form id="auth-mfa" class="auth-view">
+        <button class="back" type="button" data-auth-view="login" aria-label="Volver">←</button>
+        <span class="eyebrow">DOBLE FACTOR</span>
+        <h2>Confirma el inicio de sesión</h2>
+        <p class="provider-note">Escribe el código de 6 dígitos de tu aplicación autenticadora.</p>
+        <label><span>Código de seguridad</span><input id="login-mfa-code" class="verification-code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" minlength="6" maxlength="6" required></label>
+        <button class="primary" type="submit">Verificar e iniciar sesión</button>
       </form>
 
       <form id="auth-register" class="auth-view">
@@ -44,16 +61,39 @@
         <h2 data-i18n="access.register">Registrarse</h2>
         <label><span data-i18n="field.name">Nombre</span><input id="register-name" autocomplete="name" required maxlength="40"></label>
         <label><span data-i18n="field.email">Correo electrónico</span><input id="register-email" type="email" autocomplete="username" required></label>
-        <label><span data-i18n="field.password">Contraseña</span><input id="register-password" type="password" autocomplete="new-password" required minlength="10"></label>
+        <label><span data-i18n="field.password">Contraseña</span><span class="password-field"><input id="register-password" type="password" autocomplete="new-password" required minlength="10"><button class="password-toggle" type="button" data-password-target="register-password" aria-label="Mostrar contraseña" title="Mostrar contraseña">◉</button></span></label>
+        <label><span data-i18n="field.confirm_password">Repite la contraseña</span><span class="password-field"><input id="register-password-confirm" type="password" autocomplete="new-password" required minlength="10"><button class="password-toggle" type="button" data-password-target="register-password-confirm" aria-label="Mostrar contraseña" title="Mostrar contraseña">◉</button></span></label>
         <button class="primary" type="submit" data-i18n="register.create">Crear identidad</button>
+      </form>
+      <form id="auth-verify" class="auth-view">
+        <button class="back" type="button" data-auth-view="login" aria-label="Volver">←</button>
+        <span class="eyebrow"><span data-i18n="verify.secure_code">CÓDIGO SEGURO</span> · 2/2</span>
+        <h2 data-i18n="verify.title">Verifica tu cuenta</h2>
+        <p class="provider-note" data-i18n="verify.note">Escribe el código de 8 dígitos enviado por ARCHEON.</p>
+        <label><span data-i18n="field.email">Correo electrónico</span><input id="verify-email" type="email" autocomplete="email" required></label>
+        <label><span data-i18n="verify.code">Código de verificación</span><input id="verify-code" class="verification-code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{8}" minlength="8" maxlength="8" required></label>
+        <button class="primary" type="submit" data-i18n="verify.submit">Verificar y continuar</button>
+        <button id="verify-resend" class="ghost-action" type="button" data-i18n="verify.resend">Reenviar código</button>
       </form>
       <form id="auth-forgot" class="auth-view">
         <button class="back" type="button" data-auth-view="login" aria-label="Volver">←</button>
         <span class="eyebrow" data-i18n="login.channel">CANAL SEGURO</span>
         <h2 data-i18n="auth.recover">Recuperar acceso</h2>
         <label><span data-i18n="field.email">Correo electrónico</span><input id="forgot-email" type="email" autocomplete="email" required></label>
-        <p class="provider-note" data-i18n="auth.recover_note">Recibirás un enlace seguro si la cuenta existe.</p>
+        <p class="provider-note" data-i18n="auth.recover_note">Recibirás un código de 8 dígitos si la cuenta existe.</p>
         <button class="primary" type="submit" data-i18n="auth.send_recovery">Enviar recuperación</button>
+        <button class="ghost-action" type="button" data-auth-view="reset" data-i18n="auth.have_recovery_code">Ya tengo un código</button>
+      </form>
+      <form id="auth-reset" class="auth-view">
+        <button class="back" type="button" data-auth-view="login" aria-label="Volver">←</button>
+        <span class="eyebrow" data-i18n="verify.secure_code">CÓDIGO SEGURO</span>
+        <h2 data-i18n="auth.reset_title">Crea una contraseña nueva</h2>
+        <p class="provider-note" data-i18n="auth.reset_note">Introduce el código de 8 dígitos enviado a tu correo.</p>
+        <label><span data-i18n="field.email">Correo electrónico</span><input id="reset-email" type="email" autocomplete="email" required></label>
+        <label><span data-i18n="verify.code">Código de verificación</span><input id="reset-code" class="verification-code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{8}" minlength="8" maxlength="8" required></label>
+        <label><span data-i18n="account.new_password">Nueva contraseña</span><span class="password-field"><input id="reset-password" type="password" autocomplete="new-password" required minlength="10"><button class="password-toggle" type="button" data-password-target="reset-password" aria-label="Mostrar contraseña" title="Mostrar contraseña">◉</button></span></label>
+        <label><span data-i18n="field.confirm_password">Repite la contraseña</span><span class="password-field"><input id="reset-password-confirm" type="password" autocomplete="new-password" required minlength="10"><button class="password-toggle" type="button" data-password-target="reset-password-confirm" aria-label="Mostrar contraseña" title="Mostrar contraseña">◉</button></span></label>
+        <button class="primary" type="submit" data-i18n="auth.reset_submit">Actualizar contraseña</button>
       </form>
       <p id="auth-message" class="auth-message" role="status"></p>
       <select id="language-select" class="language-select" aria-label="Idioma">
@@ -65,11 +105,12 @@
   </main>
 
   <main id="app-shell" class="app-shell" hidden>
-    <header class="clock-widget"><time id="clock-time">--:--</time><span id="clock-date">---</span></header>
+    <header class="clock-widget" data-layout-key="clock"><time id="clock-time">--:--</time><span id="clock-date">---</span></header>
     <div class="top-actions">
-      <span id="session-badge" class="session-badge"></span>
-      <button id="ghost-button" class="icon-button" type="button" data-i18n-aria="action.ghost" aria-label="Modo Fantasma">◉</button>
-      <button id="menu-button" class="icon-button" type="button" aria-label="Menú">☰</button>
+      <span id="session-badge" class="session-badge" data-layout-key="session_badge"></span>
+      <button id="command-toggle" class="icon-button" data-layout-key="command_toggle" type="button" aria-label="Ocultar barra de comandos" title="Ocultar barra de comandos">⌨</button>
+      <button id="ghost-button" class="icon-button" data-layout-key="ghost_toggle" type="button" data-i18n-aria="action.ghost" aria-label="Modo Fantasma">◉</button>
+      <button id="menu-button" class="icon-button" data-layout-key="menu_toggle" type="button" aria-label="Menú"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
     </div>
 
     <aside id="sidebar" class="sidebar">
@@ -77,47 +118,92 @@
       <div class="profile"><div class="profile-icon">A</div><strong id="profile-name">ARCHEON</strong><span id="profile-email"></span></div>
       <button id="voice-settings-open" class="menu-item" data-i18n="menu.voice">🎙 Voz y micrófono</button>
       <button id="music-open" class="menu-item" data-i18n="menu.music">♫ Reproductor local</button>
+      <button id="cloud-open" class="menu-item account-only">☁ ARCHEON Cloud</button>
       <button id="launcher-open" class="menu-item">▦ Launcher</button>
       <button id="account-open" class="menu-item" data-i18n="menu.account">Cuenta y seguridad</button>
       <button id="settings-open" class="menu-item" data-i18n="menu.settings">⚙ Configuración</button>
+      <section id="guest-account-cta" class="guest-account-cta" hidden><strong>Guarda tu experiencia</strong><p>Inicia sesión para sincronizar preferencias y favoritos. Los cambios de invitado permanecen en este dispositivo.</p><button id="guest-login" class="outline" type="button">Iniciar sesión</button><button id="guest-register" class="ghost-action" type="button">Crear cuenta</button></section>
       <button id="logout-button" class="menu-item logout" data-i18n="menu.logout">Cerrar sesión</button>
     </aside>
 
-    <section class="visualizer" aria-label="Estado de ARCHEON">
+    <section class="visualizer" data-layout-key="orb" aria-label="Estado de ARCHEON">
       <div class="ring r1" aria-hidden="true"></div><div class="ring r2" aria-hidden="true"></div><div class="ring r3" aria-hidden="true"></div>
-      <div class="core"><img id="core-art" src="/logo_asitente.png" alt="Orbe ARCHEON"></div>
+      <button id="orb-launcher" class="core" type="button" aria-label="Abrir Launcher" title="Abrir Launcher"><img id="core-art" src="/logo_asitente.png" alt="Orbe ARCHEON"><video id="core-logo-video" muted loop playsinline hidden></video></button>
       <div class="amplitude" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
     </section>
 
     <section class="status-container">
-      <p id="assistant-state">IDLE</p>
-      <span id="assistant-detail" data-i18n="state.ready">Sistema local preparado</span>
-      <button id="voice-button" class="voice-button" disabled><span>◉</span><span data-i18n="voice.experimental">VOZ · EXPERIMENTAL (BACKEND PENDIENTE)</span></button>
+      <p id="assistant-state" data-layout-key="assistant_name">IDLE</p>
+      <span id="assistant-detail" data-layout-key="assistant_detail" data-i18n="state.ready">Sistema local preparado</span>
+      <button id="voice-button" class="voice-button" data-layout-key="voice_button" disabled title="Micrófono no disponible"><span class="voice-status-dot" aria-hidden="true"></span><span class="sr-only">Micrófono no disponible</span></button>
+    </section>
+    <section id="notifications" class="notifications" aria-live="polite" aria-atomic="true"></section>
+
+    <section id="agent-control" class="agent-control" aria-live="polite" hidden>
+      <button id="agent-collapse" class="agent-collapse" type="button" aria-label="Contraer control de ARCHI">ARCHI · Control <span>⌃</span></button>
+      <div id="agent-control-body">
+        <strong id="agent-goal"></strong><span id="agent-step"></span>
+        <div id="agent-visual" class="agent-visual" hidden><img id="agent-preview" alt="Vista local de la aplicación que ARCHI está manejando"><dl><dt>Aplicación</dt><dd id="agent-app">—</dd><dt>Objetivo</dt><dd id="agent-target">—</dd><dt>Método</dt><dd id="agent-method">—</dd><dt>Resultado</dt><dd id="agent-result">—</dd></dl></div>
+        <div><button id="agent-pause" type="button">Pausa</button><button id="agent-stop" type="button">Detener</button></div>
+      </div>
     </section>
 
-    <section id="music-panel" class="music-widget" aria-label="Reproductor" aria-hidden="true">
+    <section id="music-panel" class="music-widget" data-layout-key="music" aria-label="Reproductor" aria-hidden="true">
       <div class="track-copy"><strong id="track-title" data-i18n="music.none">Sin reproducción activa</strong><span id="track-artist"></span><small id="track-album"></small></div>
-      <div class="media-controls"><button id="music-previous" aria-label="Anterior">‹</button><button id="music-play" aria-label="Reproducir">▶</button><button id="music-pause" aria-label="Pausar">Ⅱ</button><button id="music-next" aria-label="Siguiente">›</button><button id="music-stop" aria-label="Detener">■</button></div>
+      <div class="media-controls"><button id="music-choose" aria-label="Elegir música" title="Elegir música">＋</button><button id="music-previous" aria-label="Anterior">‹</button><button id="music-play" aria-label="Reproducir">▶</button><button id="music-pause" aria-label="Pausar">Ⅱ</button><button id="music-next" aria-label="Siguiente">›</button><button id="music-stop" aria-label="Detener">■</button></div>
       <div class="media-sliders"><input id="music-seek" type="range" min="0" max="1" value="0" aria-label="Posición"><input id="music-volume" type="range" min="0" max="100" value="70" aria-label="Volumen"></div>
     </section>
 
     <section class="command-console">
-      <form id="command-form"><input id="command-input" maxlength="2000" autocomplete="off" data-i18n-placeholder="command.placeholder" placeholder="Escribe una orden local"><button type="submit" aria-label="Ejecutar"><span aria-hidden="true">➤</span><span class="sr-only" data-i18n="command.run">Ejecutar</span></button></form>
-      <pre id="result" aria-live="polite"></pre>
+      <div id="conversation-stack" class="conversation-stack" data-layout-key="conversation">
+        <section id="context-reply" class="context-reply" aria-live="polite" hidden><div><span>Tú</span><p id="context-user"></p></div><div><span>ARCHEON</span><div id="result" class="message-result"></div></div></section>
+        <div id="artifact-previews" class="artifact-previews" aria-live="polite"></div>
+      </div>
+      <div id="command-stack" class="command-stack" data-layout-key="command">
+        <div id="attachment-previews" class="attachment-previews" aria-live="polite"></div>
+        <form id="command-form" class="archeon-input">
+          <button id="attachment-button" class="attachment-button" type="button" aria-label="Adjuntar" title="Adjuntar">＋</button>
+          <textarea id="command-input" rows="1" maxlength="2000" autocomplete="off" data-i18n-placeholder="command.placeholder" placeholder="Escribe una orden local"></textarea>
+          <button id="command-dictate" class="dictation-button" type="button" aria-label="Dictar sin enviar" title="Dictar sin enviar"><span aria-hidden="true">🎙</span></button>
+          <button id="command-submit" type="submit" aria-label="Ejecutar"><span aria-hidden="true">➤</span><span class="sr-only" data-i18n="command.run">Ejecutar</span></button>
+          <input id="attachment-files" type="file" multiple hidden>
+          <input id="attachment-folder" type="file" webkitdirectory directory multiple hidden>
+        </form>
+        <div id="attachment-menu" class="attachment-menu" hidden><button id="attachment-file-open" type="button">Archivo / imagen</button><button id="attachment-folder-open" type="button">Carpeta</button></div>
+      </div>
+    </section>
+
+    <section id="layout-editor" class="layout-editor" aria-label="Editor de interfaz" hidden>
+      <div class="layout-editor-head"><strong data-i18n="layout.title">Editar interfaz</strong><button id="layout-editor-close" type="button" aria-label="Salir sin guardar">×</button></div>
+      <label><span data-i18n="layout.element">Elemento</span><select id="layout-editor-element"><option value="clock">Reloj y fecha</option><option value="session_badge">Sesión / Invitado</option><option value="command_toggle">Botón de teclado</option><option value="ghost_toggle">Botón de modo radial</option><option value="menu_toggle">Menú principal</option><option value="orb">Orbe y logo</option><option value="assistant_name">Nombre y estado</option><option value="assistant_detail">Descripción del estado</option><option value="voice_button">Activación manual del micrófono</option><option value="conversation">Mensajes y respuestas</option><option value="command">Barra de mensajes</option><option value="music">Reproductor</option></select></label>
+      <div class="layout-editor-options"><label><span data-i18n="layout.color">Color</span><input id="layout-editor-color" type="color" value="#00f3ff"></label><label class="check-row"><input id="layout-editor-visible" type="checkbox" checked><span data-i18n="layout.visible">Visible</span></label></div>
+      <label id="layout-editor-background-row" hidden><span>Fondo del panel</span><input id="layout-editor-background" type="color" value="#0c1217"></label>
+      <label id="layout-editor-text-row" hidden><span>Color del texto</span><input id="layout-editor-text" type="color" value="#e5f7fa"></label>
+      <label id="layout-editor-style-row" hidden><span>Estilo de mensajes</span><select id="layout-editor-style"><option value="card">Tarjeta</option><option value="compact">Compacto</option><option value="bubbles">Burbujas</option></select></label>
+      <div id="layout-editor-chat-image-row" class="layout-editor-chat-image" hidden><button id="layout-editor-chat-image" class="ghost-action" type="button">Elegir imagen del chat</button><button id="layout-editor-chat-clear" class="ghost-action" type="button">Quitar imagen</button></div>
+      <label><span>Tamaño <output id="layout-editor-scale-value">100%</output></span><input id="layout-editor-scale" type="range" min="50" max="180" value="100"></label>
+      <label id="layout-editor-width-row" hidden><span>Ancho <output id="layout-editor-width-value">70%</output></span><input id="layout-editor-width" type="range" min="35" max="100" value="70"></label>
+      <p id="layout-editor-help" data-i18n="layout.help">Arrastra el elemento seleccionado para moverlo. Los cambios son solo una vista previa hasta que los guardes.</p>
+      <div class="layout-editor-actions"><button id="layout-editor-reset" class="ghost-action" type="button" data-i18n="layout.reset">Restablecer</button><button id="layout-editor-save" class="primary" type="button" data-i18n="layout.save">Guardar</button></div>
     </section>
 
     <dialog id="voice-settings" class="settings-dialog">
       <form id="voice-settings-form" method="dialog">
         <header><div><span class="eyebrow" data-i18n="voice.settings.eyebrow">SISTEMA DE VOZ</span><h2 data-i18n="voice.settings.title">Audio y voz</h2></div><button id="voice-settings-close" type="button" aria-label="Cerrar">×</button></header>
-        <label><span data-i18n="voice.settings.profile">Perfil</span><select id="voice-profile"></select></label>
-        <label><span data-i18n="voice.settings.microphone">Micrófono WASAPI compartido</span><select id="voice-input"></select></label>
-        <label><span data-i18n="voice.settings.tts_voice">Voz de respuesta</span><select id="voice-tts"></select></label>
-        <label><span data-i18n="voice.settings.output">Salida TTS</span><select id="voice-output"></select></label>
-        <label><span data-i18n="voice.settings.rate">Velocidad</span><input id="voice-rate" type="range" min="-10" max="10" value="0"></label>
-        <label><span data-i18n="voice.settings.volume">Volumen</span><input id="voice-volume" type="range" min="0" max="100" value="100"></label>
-        <label class="check-row"><input id="voice-barge" type="checkbox"><span data-i18n="voice.settings.barge">Permitir interrupción mientras habla</span></label>
+        <fieldset class="settings-group"><legend data-i18n="voice.audio_input">Entrada de audio</legend><label><span data-i18n="voice.settings.microphone">Micrófono WASAPI compartido</span><select id="voice-input"></select></label><button id="voice-input-test" class="outline" type="button" data-i18n="voice.test_microphone">Probar micrófono</button><progress id="voice-input-level" max="1" value="0"></progress><p id="voice-input-test-status" class="provider-note" role="status"></p></fieldset>
+        <fieldset class="settings-group"><legend data-i18n="voice.audio_output">Salida de audio</legend><label><span data-i18n="voice.settings.output">Salida TTS</span><select id="voice-output"></select></label><label><span data-i18n="voice.preview_phrase">Frase de preescucha</span><input id="voice-preview-text" maxlength="240" data-i18n-value="voice.settings.preview_text" value="Hola, soy ARCHEON. Esta es una prueba de mi voz."></label><button id="voice-settings-preview" class="outline" type="button" data-i18n="voice.preview_current">Preescuchar voz y tono actuales</button><p id="voice-preview-status" class="provider-note" role="status"></p></fieldset>
+        <fieldset class="settings-group"><legend data-i18n="voice.group">Voz</legend><label><span data-i18n="voice.settings.profile">Perfil de reconocimiento</span><select id="voice-profile"></select></label><label><span data-i18n="voice.settings.tts_voice">Voz instalada</span><select id="voice-tts"></select></label><label><span data-i18n="voice.style">Estilo de voz</span><select id="voice-style"><option value="natural" data-i18n="voice.style.natural">Natural</option><option value="deep" data-i18n="voice.style.deep">Grave</option><option value="technological" data-i18n="voice.style.technological">Tecnológica</option><option value="warm" data-i18n="voice.style.warm">Cálida</option><option value="professional" data-i18n="voice.style.professional">Profesional</option><option value="energetic" data-i18n="voice.style.energetic">Enérgica</option><option value="calm" data-i18n="voice.style.calm">Calmada</option><option value="cinematic" data-i18n="voice.style.cinematic">Cinematográfica</option><option value="custom" data-i18n="voice.style.custom">Personalizada</option></select></label><label><span data-i18n="voice.settings.rate">Velocidad</span><input id="voice-rate" type="range" min="-10" max="10" value="0"></label><label><span data-i18n="voice.settings.volume">Volumen</span><input id="voice-volume" type="range" min="0" max="100" value="100"></label><label class="check-row"><input id="voice-barge" type="checkbox"><span data-i18n="voice.settings.barge">Permitir interrupción mientras habla</span></label><p class="provider-note" data-i18n="voice.preview_note">La preescucha usa los valores seleccionados aunque todavía no hayas guardado. ARCHEON solo ofrece voces instaladas o licenciadas.</p></fieldset>
+        <fieldset class="settings-group"><legend data-i18n="voice.authorized">Voces autorizadas</legend>
+          <label class="check-row"><input id="speaker-verification-enabled" type="checkbox"><span data-i18n="voice.authorized_only">Activar ARCHEON solo cuando reconozca una voz autorizada</span></label>
+          <div class="speaker-enrollment"><label><span data-i18n="voice.person_name">Nombre de la persona</span><input id="speaker-profile-name" maxlength="48" data-i18n-placeholder="voice.my_voice" placeholder="Mi voz"></label><button id="speaker-enroll" class="outline" type="button" data-i18n="voice.add_voice">Añadir voz</button></div>
+          <div id="speaker-profiles" class="speaker-profiles" aria-live="polite"></div>
+          <label><span data-i18n="voice.other_voice">Si escucha otra voz</span><select id="speaker-rejection-feedback"><option value="silent" data-i18n="voice.ignore_silent">Ignorar en silencio</option><option value="visual" data-i18n="voice.visual_notice">Mostrar aviso local</option></select></label>
+          <p id="speaker-enrollment-status" class="provider-note" role="status" data-i18n="voice.enroll_note">Se necesitan tres frases. Las muestras se descartan y solo se guarda una firma acústica cifrada.</p>
+          <p class="provider-note" data-i18n="voice.security_note">Esta protección reduce activaciones accidentales, pero no sustituye las confirmaciones para acciones sensibles.</p>
+        </fieldset>
         <p id="voice-model-detail" class="provider-note"></p>
-        <button id="voice-settings-preview" class="outline" type="button" data-i18n="voice.settings.preview">Probar voz</button>
+        <p id="wake-status-detail" class="provider-note" role="status"></p>
+        <details class="wake-diagnostics"><summary>Diagnóstico avanzado de Wake Word</summary><dl><dt>Stream</dt><dd id="wake-diag-stream">—</dd><dt>Frames</dt><dd id="wake-diag-frames">0</dd><dt>Worker</dt><dd id="wake-diag-detector">—</dd><dt>Motor local</dt><dd id="wake-diag-backend">—</dd><dt>Dispositivo</dt><dd id="wake-diag-device">—</dd><dt>Sample rate</dt><dd id="wake-diag-rate">—</dd><dt>Último error</dt><dd id="wake-diag-error">—</dd><dt>Último candidato</dt><dd id="wake-diag-candidate">—</dd><dt>Última activación</dt><dd id="wake-diag-activation">—</dd></dl><label><span>Nivel de entrada Wake</span><progress id="wake-diag-level" max="1" value="0"></progress></label><p class="provider-note">El candidato se conserva solo en memoria para diagnóstico; ARCHEON no guarda el audio ni expone sus componentes internos.</p></details>
         <button id="voice-settings-save" class="primary" type="button" data-i18n="voice.settings.save">Guardar configuración</button>
       </form>
     </dialog>
@@ -152,49 +238,243 @@
     <dialog id="launcher-dialog" class="settings-dialog launcher-dialog">
       <form method="dialog"><header><div><span class="eyebrow">LAUNCHER</span><h2>Apps y juegos</h2></div><button id="launcher-close" type="button" aria-label="Cerrar">×</button></header>
         <div class="launcher-tabs"><button type="button" data-launcher-category="all">Todo</button><button type="button" data-launcher-category="app">Apps</button><button type="button" data-launcher-category="game">Juegos</button><button type="button" data-launcher-category="favorites">Favoritos</button><button type="button" data-launcher-category="recent">Recientes</button></div>
-        <input id="launcher-search" type="search" placeholder="Buscar sin volver a escanear">
+        <div class="launcher-tools"><input id="launcher-search" type="search" placeholder="Buscar sin volver a escanear"><button id="launcher-add" class="outline" type="button">＋ Añadir atajo</button></div>
         <div id="launcher-list" class="launcher-list"></div><p id="launcher-message" class="auth-message"></p>
       </form>
+    </dialog>
+
+    <dialog id="cloud-dialog" class="settings-dialog cloud-dialog">
+      <form method="dialog">
+        <header><div><span class="eyebrow">ARCHEON CLOUD</span><h2>Mis archivos y dispositivos</h2></div><button id="cloud-close" type="button" aria-label="Cerrar">×</button></header>
+        <p class="provider-note">Contenido privado de tu cuenta. Los archivos se verifican con SHA-256 y no usan enlaces públicos permanentes.</p>
+        <div class="cloud-toolbar"><label class="outline cloud-upload">＋ Subir archivo<input id="cloud-file-input" type="file" hidden></label><button id="cloud-refresh" class="ghost-action" type="button">Actualizar</button></div>
+        <section class="cloud-section"><div class="cloud-section-title"><strong>Archivos</strong><span id="cloud-file-count">—</span></div><div id="cloud-files" class="cloud-list" aria-live="polite"></div></section>
+        <section class="cloud-section"><div class="cloud-section-title"><strong>Mis dispositivos</strong><span id="cloud-device-count">—</span></div><div id="cloud-devices" class="cloud-list" aria-live="polite"></div></section>
+        <p id="cloud-message" class="auth-message" role="status"></p>
+      </form>
+    </dialog>
+
+    <dialog id="youtube-player-dialog" class="official-media-dialog" aria-label="Reproductor oficial de YouTube">
+      <header><div><span class="eyebrow">YOUTUBE · REPRODUCTOR OFICIAL</span><strong id="youtube-player-title">Contenido visual</strong></div><button id="youtube-player-close" type="button" aria-label="Cerrar reproductor">×</button></header>
+      <div id="youtube-player" class="official-youtube-player"></div>
+      <p>La reproducción usa el reproductor visible oficial de YouTube. ARCHEON no extrae ni descarga el audio.</p>
     </dialog>
 
     <dialog id="settings-dialog" class="settings-dialog settings-main">
       <form method="dialog">
         <header><div><span class="eyebrow" data-i18n="settings.eyebrow">PREFERENCIAS</span><h2 data-i18n="settings.title">Configuración</h2></div><button id="settings-close" type="button" aria-label="Cerrar">×</button></header>
-        <div class="settings-grid">
-          <label><span data-i18n="settings.interface_language">Idioma de la interfaz</span><select id="settings-interface-language"></select></label>
-          <label><span data-i18n="settings.conversation_language">Idioma de conversación</span><select id="settings-conversation-language"></select></label>
-          <label><span data-i18n="settings.theme">Tema</span><select id="settings-theme"><option value="system">Sistema</option><option value="dark">Oscuro</option><option value="light">Claro</option></select></label>
-          <label><span data-i18n="settings.wake_name">Nombre de activación</span><input id="settings-wake-name" maxlength="24"></label>
-          <label><span>Fondo</span><select id="settings-background-type"><option value="default">Predeterminado</option><option value="image">Imagen</option><option value="video">Video</option></select></label>
-          <label><span>Ajuste del fondo</span><select id="settings-background-fit"><option value="cover">Cubrir</option><option value="contain">Contener</option><option value="fill">Estirar</option></select></label>
-          <label><span>Desenfoque</span><input id="settings-background-blur" type="range" min="0" max="30"></label>
-          <label><span>Opacidad</span><input id="settings-background-opacity" type="range" min="10" max="100"></label>
-          <label><span>Escala UI</span><input id="settings-ui-scale" type="range" min="80" max="130"></label>
-          <label><span>Escala de texto</span><input id="settings-text-scale" type="range" min="80" max="150"></label>
+        <label class="settings-search"><span class="sr-only" data-i18n="settings.search">Buscar en configuración</span><input id="settings-search" type="search" data-i18n-placeholder="settings.search_placeholder" placeholder="Buscar en configuración…" autocomplete="off"></label>
+        <div class="settings-center">
+          <nav class="settings-nav" aria-label="Secciones de configuración">
+            <button type="button" data-settings-section="general" class="active" data-i18n="nav.general">General</button>
+            <button type="button" data-settings-section="personalization" data-i18n="nav.personalization">Personalización</button>
+            <button type="button" data-settings-section="accessibility" data-i18n="nav.accessibility">Accesibilidad</button>
+            <button type="button" data-settings-section="activation" data-i18n="nav.activation">Activación</button>
+            <button type="button" data-settings-section="intelligence">ARCHI</button>
+            <button type="button" data-settings-section="music" data-i18n="nav.music">Música</button>
+            <button type="button" data-settings-section="privacy" data-i18n="nav.privacy">Sincronización y datos</button>
+            <button type="button" class="account-only" data-settings-section="cloud" data-i18n="nav.cloud">Cloud</button>
+            <button type="button" data-settings-section="extensions" data-i18n="nav.extensions">Extensiones</button>
+            <button type="button" data-settings-section="updates" data-i18n="nav.updates">Actualizaciones</button>
+            <button type="button" data-settings-open="voice" data-i18n="nav.voice">Voz y audio</button>
+            <button type="button" data-settings-open="account" data-i18n="nav.account">Cuenta y seguridad</button>
+          </nav>
+          <div class="settings-content">
+            <section class="settings-section active" data-settings-panel="general" data-search-terms="general idioma región inicio sonido permisos aprobación acceso control seguridad">
+              <h3>General</h3><p>Idioma, región y comportamiento de inicio.</p>
+              <div class="settings-grid">
+                <label><span data-i18n="settings.interface_language">Idioma de la interfaz</span><select id="settings-interface-language"></select></label>
+                <label><span data-i18n="settings.conversation_language">Idioma de conversación</span><select id="settings-conversation-language"></select></label>
+                <label><span>¿Cómo quieres que ARCHEON te llame?</span><input id="settings-preferred-name" maxlength="40" placeholder="Nombre preferido"></label>
+              </div>
+              <label class="check-row"><input id="settings-startup-sound" type="checkbox"><span data-i18n="settings.startup_sound">Sonido al iniciar</span></label>
+              <h4>Inicio y ventana</h4>
+              <label class="check-row"><input id="settings-launch-at-login" type="checkbox"><span>Iniciar ARCHEON al entrar en Windows</span></label>
+              <label><span>Modo inicial de la ventana</span><select id="settings-window-mode"><option value="normal">Ventana normal</option><option value="maximized">Ventana maximizada</option><option value="minimized">Ventana minimizada</option></select></label>
+              <label class="check-row"><input id="settings-start-ghost" type="checkbox"><span>Iniciar directamente en modo Ghost</span></label>
+              <label class="check-row"><input id="settings-ghost-topmost" type="checkbox"><span>Mantener Ghost encima de otras ventanas</span></label>
+              <button id="settings-repeat-tour" class="outline" type="button">Repetir recorrido</button>
+              <p class="provider-note">ARCHEON recuerda si lo cerraste en modo normal o Ghost. Ghost tiene prioridad sobre el modo de ventana cuando está seleccionado.</p>
+              <h4>Permisos para actuar</h4>
+              <label><span>Nivel de aprobación</span><select id="settings-approval-mode"><option value="ask">Solicitar aprobación</option><option value="balanced">Aprobar acciones de solo lectura</option><option value="full_control">Control autorizado</option></select></label>
+              <p class="provider-note" id="settings-approval-help">ARCHEON preguntará antes de usar herramientas que aún no tengan permiso.</p>
+              <label><span>Mostrar acciones de Computer Use</span><select id="settings-computer-use-display"><option value="normal">Normal</option><option value="visible">Visible / demostración</option><option value="fast">Rápido</option></select></label>
+              <p class="provider-note">En demostración, el cursor se mueve suavemente y ARCHEON resalta el objetivo antes de actuar.</p>
+              <h4>Rendimiento visual</h4>
+              <label><span>Perfil de interfaz</span><select id="settings-performance-profile"><option value="eco">Ligero · mínimo uso de GPU</option><option value="balanced">Equilibrado</option><option value="performance">Fluido · más animaciones</option></select></label>
+              <label class="check-row"><input id="settings-idle-animation" type="checkbox"><span>Mantener animaciones decorativas en reposo</span></label>
+              <p class="provider-note">Los modelos, visión, voz y multimedia continúan cargándose únicamente cuando hacen falta.</p>
+            </section>
+            <section class="settings-section" data-settings-panel="personalization" data-search-terms="personalización apariencia tema colores claro oscuro sistema escala accesibilidad contraste movimiento fondo imagen video logo reloj barra comandos">
+              <h3>Personalización</h3><p>Tema, colores, accesibilidad, logo, fondo y reloj.</p>
+              <h4>Apariencia</h4>
+              <div class="settings-grid">
+                <label><span data-i18n="settings.theme">Tema</span><select id="settings-theme"><option value="system">Sistema</option><option value="dark">Oscuro</option><option value="light">Claro</option></select></label>
+                <label><span>Color de acento</span><select id="settings-accent"><option value="#00F3FF">Cyan</option><option value="#2F80FF">Azul</option><option value="#A855F7">Morado</option><option value="#FF3B5C">Rojo</option><option value="#22C55E">Verde</option><option value="#FF8A1F">Naranja</option><option value="custom">Personalizado</option></select></label>
+                <label id="settings-accent-custom-row" hidden><span>Color personalizado</span><input id="settings-accent-custom" type="color" value="#00f3ff"></label>
+              </div>
+              <h4>Fondo y marca personal</h4>
+              <div class="visual-settings">
+                <section class="visual-setting-card" aria-labelledby="background-card-title">
+                  <div><strong id="background-card-title">Fondo de la interfaz</strong><p>Cambia el área completa detrás de ARCHEON. Admite PNG, JPG, WebP, GIF, MP4 y WebM.</p></div>
+                  <div class="settings-grid">
+                    <label><span>Tipo de fondo</span><select id="settings-background-type"><option value="default">Predeterminado</option><option value="image">Imagen o GIF</option><option value="video">Video</option></select></label>
+                    <label><span>Ajuste del fondo</span><select id="settings-background-fit"><option value="cover">Cubrir</option><option value="contain">Contener</option><option value="stretch">Estirar</option></select></label>
+                    <label><span>Desenfoque</span><input id="settings-background-blur" type="range" min="0" max="30"></label>
+                    <label><span>Opacidad</span><input id="settings-background-opacity" type="range" min="10" max="100"></label>
+                  </div>
+                  <div class="settings-actions"><button id="settings-choose-image" class="outline" type="button">Elegir imagen o GIF</button><button id="settings-choose-video" class="outline" type="button">Elegir video</button><button id="settings-adjust-background" class="ghost-action" type="button">Ajustar encuadre</button></div>
+                </section>
+                <section class="visual-setting-card logo-setting-card" aria-labelledby="logo-card-title">
+                  <div><strong id="logo-card-title">Logo del orbe</strong><p>Se recorta y centra automáticamente en forma circular. El mismo logo se usa en ARCHEON, Ghost y el menú radial.</p><label class="check-row"><input id="settings-logo-visible" type="checkbox"><span>Mostrar logo en la vista completa</span></label></div>
+                  <div class="settings-actions"><button id="settings-choose-logo" class="outline" type="button">Elegir logo</button><button id="settings-adjust-logo" class="ghost-action" type="button">Ajustar encuadre</button></div>
+                </section>
+              </div>
+              <div class="visual-reset-row"><span data-i18n="personalization.reset_prompt">¿Quieres volver al diseño original?</span><button id="settings-clear-visuals" class="ghost-action" type="button" data-i18n="personalization.reset_visuals">Restablecer fondo y logo</button></div>
+              <label class="check-row"><input id="settings-input-visible" type="checkbox"><span data-i18n="personalization.command_bar">Mostrar barra de comandos</span></label>
+              <label class="check-row"><input id="settings-status-visible" type="checkbox"><span data-i18n="personalization.mic_indicator">Mostrar indicador del micrófono</span></label>
+              <label class="check-row"><input id="settings-clock-visible" type="checkbox"><span data-i18n="personalization.clock">Mostrar reloj</span></label>
+              <label class="check-row"><input id="settings-clock-24h" type="checkbox"><span data-i18n="personalization.clock_24">Formato de 24 horas</span></label>
+              <label class="check-row"><input id="settings-clock-seconds" type="checkbox"><span data-i18n="personalization.seconds">Mostrar segundos</span></label>
+              <label class="check-row"><input id="settings-clock-date" type="checkbox"><span data-i18n="personalization.date">Mostrar fecha</span></label>
+              <output id="settings-clock-preview" class="settings-clock-preview" aria-live="polite"></output>
+              <section class="interface-preview-card"><div><strong data-i18n="layout.card_title">Distribución de la interfaz</strong><p data-i18n="layout.card_help">Previsualiza el dashboard y mueve cada elemento directamente. También puedes ocultarlo o elegir un color independiente.</p></div><button id="settings-edit-layout" class="outline" type="button" data-i18n="layout.open">Vista previa · Editar interfaz</button></section>
+            </section>
+            <section class="settings-section" data-settings-panel="accessibility" data-search-terms="accesibilidad escala texto controles grandes zurdo contraste movimiento animación sordera escucha pausa atajo">
+              <h3 data-i18n="accessibility.title">Accesibilidad</h3><p data-i18n="accessibility.description">Adapta lectura, movimiento y controles sin reducir las funciones de ARCHEON.</p>
+              <div class="settings-grid">
+                <label><span data-i18n="accessibility.ui_scale">Escala de la interfaz</span><input id="settings-ui-scale" type="range" min="80" max="130"></label>
+                <label><span data-i18n="accessibility.text_scale">Escala del texto</span><input id="settings-text-scale" type="range" min="80" max="150"></label>
+              </div>
+              <label class="check-row"><input id="settings-reduced-motion" type="checkbox"><span data-i18n="accessibility.reduced_motion">Reducir animaciones y movimiento</span></label>
+              <label class="check-row"><input id="settings-high-contrast" type="checkbox"><span data-i18n="accessibility.high_contrast">Alto contraste</span></label>
+              <label class="check-row"><input id="settings-large-targets" type="checkbox"><span data-i18n="accessibility.large_targets">Botones y zonas táctiles más grandes</span></label>
+              <label class="check-row"><input id="settings-left-handed" type="checkbox"><span data-i18n="accessibility.left_handed">Controles principales para mano izquierda</span></label>
+              <label class="check-row"><input id="settings-visual-voice-cues" type="checkbox"><span data-i18n="accessibility.voice_cues">Mostrar avisos visuales de escucha, transcripción y voz</span></label>
+              <div class="settings-grid">
+                <label><span data-i18n="accessibility.pause_phrase">Frase para pausar la escucha</span><input id="settings-pause-listening-phrase" maxlength="80" data-i18n-placeholder="accessibility.pause_placeholder" placeholder="deja de escuchar"></label>
+                <label><span data-i18n="accessibility.resume_phrase">Frase para reanudar la escucha</span><input id="settings-resume-listening-phrase" maxlength="80" data-i18n-placeholder="accessibility.resume_placeholder" placeholder="vuelve a escuchar"></label>
+              </div>
+              <div class="settings-actions"><button id="settings-listening-toggle" class="outline" type="button" data-i18n="accessibility.pause_now">Pausar escucha ahora</button></div>
+              <p class="provider-note" data-i18n="accessibility.shortcut_note">Atajo global dentro de ARCHEON: Ctrl + Alt + M. La pausa bloquea órdenes habladas y solo acepta la frase configurada para reanudar.</p>
+            </section>
+            <section class="settings-section" data-settings-panel="activation" data-search-terms="activación wake word nombre escucha contexto voz">
+              <h3>Activación</h3><p>Controla cómo y cuándo ARCHEON empieza a escuchar.</p>
+              <label><span data-i18n="settings.wake_name">Nombre de activación</span><input id="settings-wake-name" maxlength="24"></label>
+              <label class="check-row"><input id="settings-wake-enabled" type="checkbox"><span data-i18n="settings.wake_enabled">Activación local por voz</span></label>
+              <label class="check-row"><input id="settings-context-language" type="checkbox"><span data-i18n="settings.context_language">Responder según el idioma del contexto</span></label>
+            </section>
+            <section class="settings-section" data-settings-panel="privacy" data-search-terms="privacidad cloud nube datos sincronización cuenta">
+              <h3 data-i18n="privacy.title">Sincronización y datos</h3><p data-i18n="privacy.description">ARCHI procesa la inteligencia general en este dispositivo. La nube no se utiliza como proveedor de IA.</p>
+              <div class="account-only session-settings">
+                <label class="check-row"><input id="settings-sync-enabled" type="checkbox"><span>Sincronizar preferencias con mi cuenta</span></label>
+                <button id="settings-sync-now" class="outline" type="button">Sincronizar ahora</button>
+                <p id="settings-sync-status" class="provider-note" role="status"></p>
+                <p class="provider-note">La sincronización guarda preferencias; no envía modelos, audio, pantallas ni rutas locales.</p>
+              </div>
+              <div class="guest-only session-settings" hidden><strong data-i18n="privacy.local_preferences">Preferencias locales</strong><p class="provider-note" data-i18n="privacy.guest_note">En modo invitado tus cambios se guardan únicamente en este dispositivo. Inicia sesión desde el menú si quieres sincronizarlos.</p></div>
+            </section>
+            <section class="settings-section" data-settings-panel="music" data-search-terms="música canciones original remix cover directo versiones alternativas reproducción">
+              <h3>Música</h3><p>Controla qué versión debe elegir ARCHEON al buscar una canción.</p>
+              <label><span>Versiones alternativas</span><select id="settings-media-alternatives"><option value="ask">Preguntar primero</option><option value="automatic">Permitir automáticamente</option><option value="strict">Solo la versión solicitada/original</option></select></label>
+              <label><span>Volumen preferido</span><input id="settings-media-volume" type="range" min="0" max="100" value="70"></label>
+              <label class="check-row"><input id="settings-media-dj" type="checkbox"><span>Modo DJ · continuar con música relacionada</span></label>
+              <label><span>Estrategia del modo DJ</span><select id="settings-media-dj-strategy"><option value="mixed">Mezclar artista y música relacionada</option><option value="same_artist">Priorizar el mismo artista</option><option value="same_genre">Priorizar el mismo género</option></select></label>
+              <label class="check-row"><input id="settings-media-autoplay" type="checkbox"><span>Reproducción automática cuando la selección sea exacta</span></label>
+              <label class="check-row"><input id="settings-media-artwork" type="checkbox"><span>Mostrar portada durante la reproducción</span></label>
+              <label class="check-row"><input id="settings-media-vinyl" type="checkbox"><span>Animar el orbe como disco mientras suena música</span></label>
+              <label class="check-row"><input id="settings-media-local" type="checkbox"><span>Buscar en la biblioteca local</span></label>
+              <label class="check-row"><input id="settings-media-online" type="checkbox"><span>Permitir proveedores de audio online autorizados</span></label>
+              <p class="settings-note">La búsqueda multimedia ampliada está integrada en ARCHEON y se carga únicamente cuando solicitas música.</p>
+              <label><span>Volumen de avisos durante música</span><input id="settings-media-notification-volume" type="range" min="0" max="100" value="70"></label>
+              <p class="provider-note">“Preguntar primero” evita reproducir remix, cover, directo, edit u otras variantes cuando pediste la original.</p>
+              <p class="provider-note">Modo DJ usa la cola y recomendaciones verificadas del proveedor disponible; nunca inventa ni descarga canciones completas.</p>
+            </section>
+            <section class="settings-section" data-settings-panel="intelligence" data-search-terms="archi inteligencia rapidez rendimiento personalidad respuestas ia local">
+              <h3>ARCHI</h3><p>Motor de inteligencia general de ARCHEON. Funciona localmente y administra sus componentes de forma automática.</p>
+              <label><span>Rendimiento</span><select id="settings-ai-profile"><option value="eco">Ahorro de recursos</option><option value="balanced">Equilibrado</option><option value="performance">Respuesta más rápida</option></select></label>
+              <label><span>Personalidad</span><select id="settings-personality"><option value="professional">Profesional</option><option value="natural">Natural</option><option value="direct">Directo</option><option value="creative">Creativo</option><option value="technical">Técnico</option><option value="custom">Personalizado</option></select></label>
+              <label class="check-row"><input id="settings-ai-memory" type="checkbox"><span>Recordar el contexto reciente de esta conversación</span></label>
+              <label><span>Contexto reciente</span><select id="settings-ai-context-turns"><option value="2">2 turnos</option><option value="4">4 turnos</option><option value="6">6 turnos</option><option value="8">8 turnos</option></select></label>
+              <button id="settings-ai-memory-clear" class="outline" type="button">Limpiar contexto de esta sesión</button>
+              <p id="settings-ai-status" class="provider-note" role="status">ARCHI en reposo · se activa cuando hace falta</p>
+              <p class="provider-note">Los componentes internos están administrados y protegidos por ARCHEON; no requieren configuración manual.</p>
+            </section>
+            <section class="settings-section account-only" data-settings-panel="cloud" data-search-terms="cloud nube sincronización dispositivos lan relay remoto móvil archivos">
+              <h3 data-i18n="cloud.title">ARCHEON Cloud</h3><p data-i18n="cloud.description">Estado real de capacidades remotas. Ninguna función no configurada se ejecuta en segundo plano.</p>
+              <div id="settings-cloud-status" class="status-list" aria-live="polite"></div>
+            </section>
+            <section class="settings-section" data-settings-panel="extensions" data-search-terms="extensiones plugins instalar habilitar firma compatibilidad marketplace">
+              <h3 data-i18n="extensions.title">Extensiones</h3><p data-i18n="extensions.description">El motor local valida manifiesto, versión, compatibilidad, hash y firma antes de aislar cada extensión en otro proceso.</p>
+              <div id="settings-extensions-status" class="status-list" aria-live="polite"></div>
+              <p class="provider-note" data-i18n="extensions.note">Marketplace: diferido. No se instalarán paquetes sin un verificador de firma confiable configurado.</p>
+            </section>
+            <section class="settings-section" data-settings-panel="updates" data-search-terms="actualizaciones versión descargar verificar instalar reiniciar notas">
+              <h3 data-i18n="updates.title">Actualizaciones</h3><p data-i18n="updates.description">ARCHEON solo aceptará paquetes con hash y firma verificados antes de preparar un reinicio.</p>
+              <div id="settings-updates-status" class="status-list" aria-live="polite"></div>
+              <p class="provider-note" data-i18n="updates.note">Proveedor de versiones: no configurado. ARCHEON no afirmará que está actualizado hasta disponer de un backend firmado.</p>
+            </section>
+            <p id="settings-search-empty" class="provider-note" hidden>No se encontraron configuraciones.</p>
+          </div>
         </div>
-        <div class="settings-actions"><button id="settings-choose-image" class="outline" type="button">Elegir imagen</button><button id="settings-choose-video" class="outline" type="button">Elegir video</button><button id="settings-choose-logo" class="outline" type="button">Elegir logo</button><button id="settings-clear-visuals" class="ghost-action" type="button">Restablecer visuales</button></div>
-        <label class="check-row"><input id="settings-context-language" type="checkbox"><span data-i18n="settings.context_language">Responder según el idioma del contexto</span></label>
-        <label class="check-row"><input id="settings-wake-enabled" type="checkbox"><span data-i18n="settings.wake_enabled">Activación local por voz</span></label>
-        <label class="check-row"><input id="settings-startup-sound" type="checkbox"><span data-i18n="settings.startup_sound">Sonido al iniciar</span></label>
-        <label class="check-row"><input id="settings-reduced-motion" type="checkbox"><span>Reducir movimiento</span></label>
-        <label class="check-row"><input id="settings-high-contrast" type="checkbox"><span>Alto contraste</span></label>
-        <label class="check-row"><input id="settings-clock-visible" type="checkbox"><span>Mostrar reloj</span></label>
-        <label class="check-row"><input id="settings-clock-24h" type="checkbox"><span>Formato de 24 horas</span></label>
-        <label class="check-row"><input id="settings-clock-seconds" type="checkbox"><span>Mostrar segundos</span></label>
-        <label class="check-row"><input id="settings-clock-date" type="checkbox"><span>Mostrar fecha</span></label>
-        <label class="check-row"><input id="settings-cloud" type="checkbox"><span data-i18n="settings.cloud">Permitir procesamiento cloud</span></label>
-        <label class="check-row"><input id="settings-sync-enabled" type="checkbox"><span>Sincronizar preferencias con mi cuenta</span></label>
-        <button id="settings-sync-now" class="outline" type="button">Sincronizar ahora</button>
-        <p id="settings-sync-status" class="provider-note" role="status"></p>
-        <p class="provider-note" data-i18n="settings.cloud_note">Las capturas permanecen bloqueadas para cloud mediante un permiso independiente.</p>
         <p id="settings-message" class="auth-message" role="status"></p>
         <button id="settings-save" class="primary" type="button" data-i18n="settings.save">Guardar cambios</button>
       </form>
     </dialog>
 
+    <dialog id="settings-confirm-dialog" class="confirm-dialog">
+      <form method="dialog">
+        <span class="eyebrow">CONFIRMACIÓN</span>
+        <h2 id="settings-confirm-title">Cambios sin guardar</h2>
+        <p id="settings-confirm-message">Los cambios realizados no se aplicarán. ¿Deseas continuar?</p>
+        <div class="confirm-actions">
+          <button id="settings-confirm-stay" class="ghost-action" type="button">Seguir personalizando</button>
+          <button id="settings-confirm-accept" class="primary" type="button">Salir de configuración</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="layout-confirm-dialog" class="confirm-dialog">
+      <form method="dialog">
+        <span class="eyebrow" data-i18n="layout.personalization">PERSONALIZACIÓN</span>
+        <h2 id="layout-confirm-title">Aplicar distribución</h2>
+        <p id="layout-confirm-message">¿Deseas aplicar los cambios realizados?</p>
+        <div class="confirm-actions"><button id="layout-confirm-stay" class="ghost-action" type="button">Seguir editando</button><button id="layout-confirm-accept" class="primary" type="button">Sí, aplicar cambios</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="crop-dialog" class="crop-dialog">
+      <form method="dialog">
+        <header><div><span class="eyebrow">ENCUADRE</span><h2 id="crop-title">Ajustar imagen</h2></div><button id="crop-close" type="button" aria-label="Cerrar">×</button></header>
+        <p id="crop-help" class="provider-note">Arrastra la imagen para colocar la parte que quieres mostrar.</p>
+        <div id="crop-frame" class="crop-frame logo-crop"><img id="crop-image" alt="Vista previa del encuadre" draggable="false"><video id="crop-video" muted loop playsinline hidden></video></div>
+        <label class="crop-zoom"><span>Zoom</span><input id="crop-zoom" type="range" min="100" max="250" value="100"><output id="crop-zoom-value">100%</output></label>
+        <div class="settings-actions"><button id="crop-reset" class="ghost-action" type="button">Centrar</button><button id="crop-save" class="primary" type="button">Usar este encuadre</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="desktop-tour" class="desktop-tour" aria-labelledby="desktop-tour-title">
+      <section class="desktop-tour-card">
+        <span id="desktop-tour-progress" class="eyebrow">ARCHEON</span>
+        <h2 id="desktop-tour-title">Bienvenido a ARCHEON</h2>
+        <p id="desktop-tour-copy">¿Quieres iniciar un recorrido para conocer la aplicación?</p>
+        <div class="desktop-tour-actions">
+          <button id="desktop-tour-skip" class="ghost-action" type="button">No, quiero descubrirlo solo</button>
+          <button id="desktop-tour-back" class="ghost-action" type="button" hidden>Anterior</button>
+          <button id="desktop-tour-next" class="primary" type="button">Sí, iniciar tour</button>
+        </div>
+      </section>
+    </dialog>
+
+    <dialog id="desktop-mascot-error" class="mascot-error-dialog" aria-labelledby="desktop-mascot-error-title">
+      <img src="/archeon-cloud-mascot.png" alt="" aria-hidden="true">
+      <h2 id="desktop-mascot-error-title">No pude completar eso</h2>
+      <p id="desktop-mascot-error-message"></p>
+      <button id="desktop-mascot-error-close" class="primary" type="button">Entendido</button>
+    </dialog>
+
   </main>
 
-  <script src="/runtime-config.js"></script>
-  <script src="/app.js"></script>
+  <script src="/runtime-loader.js"></script>
 </body>
 </html>

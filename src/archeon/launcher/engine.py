@@ -14,6 +14,7 @@ from threading import RLock
 from typing import Any
 
 from archeon.core.lifecycle import ManagedComponent
+from archeon.core.language import normalize_text
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,6 +28,7 @@ class LaunchItem:
 
 class LauncherEngine(ManagedComponent):
     CACHE_SECONDS = 900
+    SOURCE_PRIORITY = {"custom": 0, "start-menu": 1, "steam": 2, "epic": 2, "registry": 3}
 
     def __init__(self, data_dir: Path) -> None:
         super().__init__("launcher")
@@ -34,7 +36,9 @@ class LauncherEngine(ManagedComponent):
         self._lock = RLock()
         self._items: dict[str, LaunchItem] = {}
         self._loaded_at = 0.0
-        self._launcher_state: dict[str, Any] = {"favorites": [], "recent": [], "aliases": {}}
+        self._launcher_state: dict[str, Any] = {
+            "favorites": [], "recent": [], "aliases": {}, "custom": [],
+        }
 
     @property
     def loaded(self) -> bool:
@@ -42,8 +46,8 @@ class LauncherEngine(ManagedComponent):
 
     @staticmethod
     def normalize(value: str) -> str:
-        text = unicodedata.normalize("NFKD", value.casefold())
-        return " ".join("".join(c for c in text if c.isalnum() or c.isspace()).split())
+        text = normalize_text(value)
+        return " ".join("".join(c for c in text if c.isalnum() or c.isspace() or unicodedata.combining(c)).split())
 
     @classmethod
     def _id(cls, source: str, target: str) -> str:
@@ -72,6 +76,15 @@ class LauncherEngine(ManagedComponent):
             return
         item = LaunchItem(self._id(source, target), name, target, kind, source)
         self._items.setdefault(item.id, item)
+
+    def _load_custom(self) -> None:
+        for entry in self._launcher_state.get("custom", []):
+            if not isinstance(entry, dict):
+                continue
+            self._add(
+                str(entry.get("name", "")), str(entry.get("target", "")),
+                str(entry.get("kind", "app")), "custom",
+            )
 
     def _scan_start_menus(self) -> None:
         roots = [
@@ -143,7 +156,18 @@ class LauncherEngine(ManagedComponent):
                     text = manifest.read_text(encoding="utf-8", errors="ignore")
                     appid = re.search(r'"appid"\s+"(\d+)"', text)
                     name = re.search(r'"name"\s+"([^"]+)"', text)
-                    if appid and name:
+                    install_dir = re.search(r'"installdir"\s+"([^"]+)"', text)
+                    state_flags = re.search(r'"StateFlags"\s+"(\d+)"', text, re.IGNORECASE)
+                    installed = bool(
+                        install_dir
+                        and (root / "steamapps" / "common" / install_dir.group(1)).is_dir()
+                        and (not state_flags or int(state_flags.group(1)) & 4)
+                    )
+                    # Steam keeps redistributable/tool manifests that are not user games.
+                    visible_game = bool(name and self.normalize(name.group(1)) not in {
+                        "steamworks common redistributables",
+                    })
+                    if appid and name and installed and visible_game:
                         self._add(name.group(1), f"steam://rungameid/{appid.group(1)}", "game", "steam")
                 except OSError:
                     pass
@@ -153,7 +177,12 @@ class LauncherEngine(ManagedComponent):
                 try:
                     value = json.loads(manifest.read_text(encoding="utf-8"))
                     app = str(value.get("AppName") or value.get("CatalogItemId") or "")
-                    self._add(str(value.get("DisplayName") or app), f"com.epicgames.launcher://apps/{app}?action=launch&silent=true", "game", "epic")
+                    install_location = Path(str(value.get("InstallLocation") or ""))
+                    complete = not bool(value.get("bIsIncomplete", False))
+                    # Epic can leave manifests after uninstalling a title. Only expose
+                    # entries whose bounded, declared install directory still exists.
+                    if app and complete and install_location.is_dir():
+                        self._add(str(value.get("DisplayName") or app), f"com.epicgames.launcher://apps/{app}?action=launch&silent=true", "game", "epic")
                 except (OSError, ValueError, json.JSONDecodeError):
                     pass
 
@@ -162,11 +191,31 @@ class LauncherEngine(ManagedComponent):
             if self._items and not force and time.monotonic() - self._loaded_at < self.CACHE_SECONDS:
                 return self.list_items()
             self._items.clear()
+            self._load_custom()
             self._scan_start_menus()
             self._scan_registry()
             self._scan_games()
             self._loaded_at = time.monotonic()
             return self.list_items()
+
+    def add_custom(self, name: str, target: str, kind: str = "app") -> dict[str, Any]:
+        """Register an explicit device-local shortcut without scanning arbitrary disks."""
+        name, target, kind = name.strip(), target.strip().strip('"'), kind.strip().lower()
+        if not name or not target or kind not in {"app", "game"}:
+            raise ValueError("invalid_custom_launcher_item")
+        path = Path(target).expanduser()
+        if not path.is_file():
+            raise ValueError("launcher_target_not_found")
+        canonical = str(path.resolve())
+        entries = [entry for entry in self._launcher_state.get("custom", []) if isinstance(entry, dict)]
+        item_id = self._id("custom", canonical)
+        entries = [entry for entry in entries if self._id("custom", str(entry.get("target", ""))) != item_id]
+        entries.append({"name": name[:80], "target": canonical, "kind": kind})
+        self._launcher_state["custom"] = entries
+        self._items.pop(item_id, None)
+        self._add(name[:80], canonical, kind, "custom")
+        self._save()
+        return asdict(self._items[item_id]) | {"favorite": False}
 
     def list_items(self, category: str = "all") -> list[dict[str, Any]]:
         favorites = set(self._launcher_state["favorites"])
@@ -182,6 +231,29 @@ class LauncherEngine(ManagedComponent):
         else:
             values.sort(key=lambda item: (item.kind, self.normalize(item.name)))
         return [asdict(item) | {"favorite": item.id in favorites} for item in values]
+
+    def speech_catalog(self) -> list[dict[str, Any]]:
+        """Return the bounded launcher vocabulary without exposing launch targets."""
+        self.refresh()
+        aliases_by_id: dict[str, list[str]] = {}
+        for alias, item_id in self._launcher_state["aliases"].items():
+            if item_id in self._items:
+                aliases_by_id.setdefault(item_id, []).append(str(alias))
+        selected: dict[tuple[str, str], LaunchItem] = {}
+        grouped_aliases: dict[tuple[str, str], set[str]] = {}
+        for item in self._items.values():
+            key = (self.normalize(item.name), item.kind)
+            grouped_aliases.setdefault(key, set()).update(aliases_by_id.get(item.id, ()))
+            current = selected.get(key)
+            if current is None or self.SOURCE_PRIORITY.get(item.source, 9) < self.SOURCE_PRIORITY.get(current.source, 9):
+                selected[key] = item
+        return [
+            {
+                "id": item.id, "name": item.name, "kind": item.kind,
+                "aliases": tuple(sorted(grouped_aliases.get(key, ()))),
+            }
+            for key, item in selected.items()
+        ]
 
     def launch(self, item_id: str) -> dict[str, Any]:
         self.refresh()
@@ -250,17 +322,25 @@ class LauncherEngine(ManagedComponent):
         self._save()
 
     def command_item(self, text: str) -> LaunchItem | None:
-        self.refresh()
         normalized = self.normalize(text)
-        prefixes = ("abre ", "abrir ", "open ", "launch ", "ouvre ", "ouvrir ")
+        prefixes = (
+            "abre ", "abrir ", "open ", "launch ", "ouvre ", "ouvrir ",
+            "abra ", "abrir ", "öffne ", "offne ", "starte ", "apri ", "avvia ",
+            "打开", "起動 ", "開いて ", "열어 ", "실행 ", "открой ", "запусти ",
+            "افتح ", "شغّل ", "खोलें ", "खोलो ", "चलाएँ ",
+        )
         query = next((normalized[len(prefix):] for prefix in prefixes if normalized.startswith(prefix)), "")
         if not query:
             return None
+        self.refresh()
         alias_id = self._launcher_state["aliases"].get(query)
         if alias_id in self._items:
             return self._items[alias_id]
         exact = [item for item in self._items.values() if self.normalize(item.name) == query]
-        return exact[0] if len(exact) == 1 else None
+        if not exact:
+            return None
+        exact.sort(key=lambda item: (self.SOURCE_PRIORITY.get(item.source, 9), item.id))
+        return exact[0]
 
     def _start(self) -> None:
         self._read_state()

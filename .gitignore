@@ -29,6 +29,12 @@ __pycache__/
 # Build products and bundled third-party binaries
 build/
 dist/
+build-*/
+dist-*/
+output/
+.rc-*/
+tmp/
+tmp-*/
 Instalador_Final/
 build-v10/
 dist-v10/
@@ -41,6 +47,8 @@ pyarmor_runtime_*/
 
 # Recovery scratch space and downloaded analysis tools
 .recovery/
+/docs/archive/legacy-source/
+/benchmarks/
 
 # Editor/OS noise
 .idea/

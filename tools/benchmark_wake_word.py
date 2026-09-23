@@ -14,6 +14,7 @@ from statistics import mean
 import psutil
 
 from archeon.app import ArcheonApplication
+from archeon.core.paths import AppPaths
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -24,6 +25,7 @@ def main() -> int:
     parser.add_argument("--duration-hours", type=float, default=4.0)
     parser.add_argument("--sample-seconds", type=float, default=2.0)
     parser.add_argument("--wake-name", default="Archeon")
+    parser.add_argument("--output", type=Path, default=ROOT / "benchmarks" / "wake-word-soak.json")
     args = parser.parse_args()
     duration = max(10.0, args.duration_hours * 3600)
     samples: list[tuple[float, float, float]] = []
@@ -36,7 +38,10 @@ def main() -> int:
             "errors": app.events.subscribe("wake.monitor.error", max_queue=512),
         }
         app.start()
-        app.configuration.update_settings({"assistant": {"wake_name": args.wake_name, "wake_word_enabled": True, "activation_mode": "wake_word"}})
+        app.configuration.update_settings({
+            "storage": {"model_dir": str(AppPaths.discover().default_model_dir)},
+            "assistant": {"wake_name": args.wake_name, "wake_word_enabled": True, "activation_mode": "wake_word"},
+        })
         app.voice.sync_wake_word()
         process = psutil.Process()
         started = time.monotonic()
@@ -73,7 +78,8 @@ def main() -> int:
         **counters,
         "manual_note": "Label spoken trials separately to calculate false negatives; ambient detections are false-positive candidates.",
     }
-    target = ROOT / "benchmarks" / "wake-word-soak.json"
+    target = args.output
+    target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(result, indent=2), encoding="utf-8")
     print(json.dumps(result, indent=2))
     return 0

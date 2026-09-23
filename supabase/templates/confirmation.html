@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="es">
+<body style="margin:0;background:#07090c;padding:28px;font-family:Segoe UI,Arial,sans-serif;color:#eefcff">
+<table role="presentation" width="100%"><tr><td align="center">
+<table role="presentation" width="560" style="max-width:100%;background:#0d1418;border:1px solid #00dbea;border-radius:22px;padding:34px">
+<tr><td align="center">
+<img src="https://archeon.netlify.app/img/logo_asitente.png" width="76" height="76" alt="ARCHEON" style="display:block;border-radius:50%;object-fit:contain">
+<h1 style="margin:18px 0 4px;color:#00e5f2;letter-spacing:5px">ARCHEON</h1>
+<p style="margin:0;color:#9eb2ba">DZKnight Company</p>
+</td></tr>
+<tr><td style="padding-top:30px">
+{{ if eq .Data.locale "en" }}<h2 style="margin:0 0 12px">Welcome, {{ .Data.display_name }}</h2><p style="color:#c6d2d7;line-height:1.6">Enter this code in ARCHEON to verify your email address.</p>
+{{ else if eq .Data.locale "pt" }}<h2 style="margin:0 0 12px">Olá, {{ .Data.display_name }}</h2><p style="color:#c6d2d7;line-height:1.6">Digite este código no ARCHEON para verificar seu e-mail.</p>
+{{ else if eq .Data.locale "fr" }}<h2 style="margin:0 0 12px">Bonjour, {{ .Data.display_name }}</h2><p style="color:#c6d2d7;line-height:1.6">Saisissez ce code dans ARCHEON pour vérifier votre adresse e-mail.</p>
+{{ else if eq .Data.locale "de" }}<h2 style="margin:0 0 12px">Hallo, {{ .Data.display_name }}</h2><p style="color:#c6d2d7;line-height:1.6">Gib diesen Code in ARCHEON ein, um deine E-Mail-Adresse zu bestätigen.</p>
+{{ else if eq .Data.locale "it" }}<h2 style="margin:0 0 12px">Ciao, {{ .Data.display_name }}</h2><p style="color:#c6d2d7;line-height:1.6">Inserisci questo codice in ARCHEON per verificare il tuo indirizzo e-mail.</p>
+{{ else if eq .Data.locale "zh" }}<h2 style="margin:0 0 12px">你好，{{ .Data.display_name }}</h2><p style="color:#c6d2d7;line-height:1.6">请在 ARCHEON 中输入此验证码以验证邮箱。</p>
+{{ else if eq .Data.locale "ja" }}<h2 style="margin:0 0 12px">こんにちは、{{ .Data.display_name }}</h2><p style="color:#c6d2d7;line-height:1.6">メールを確認するには、このコードを ARCHEON に入力してください。</p>
+{{ else if eq .Data.locale "ko" }}<h2 style="margin:0 0 12px">안녕하세요, {{ .Data.display_name }}</h2><p style="color:#c6d2d7;line-height:1.6">이메일 확인을 위해 ARCHEON에 이 코드를 입력하세요.</p>
+{{ else if eq .Data.locale "ru" }}<h2 style="margin:0 0 12px">Здравствуйте, {{ .Data.display_name }}</h2><p style="color:#c6d2d7;line-height:1.6">Введите этот код в ARCHEON, чтобы подтвердить адрес электронной почты.</p>
+{{ else if eq .Data.locale "ar" }}<h2 style="margin:0 0 12px">مرحبًا {{ .Data.display_name }}</h2><p style="color:#c6d2d7;line-height:1.6">أدخل هذا الرمز في ARCHEON للتحقق من بريدك الإلكتروني.</p>
+{{ else if eq .Data.locale "hi" }}<h2 style="margin:0 0 12px">नमस्ते, {{ .Data.display_name }}</h2><p style="color:#c6d2d7;line-height:1.6">ईमेल सत्यापित करने के लिए यह कोड ARCHEON में लिखें।</p>
+{{ else }}<h2 style="margin:0 0 12px">Hola, {{ .Data.display_name }}</h2><p style="color:#c6d2d7;line-height:1.6">Introduce este código en ARCHEON para verificar tu correo.</p>{{ end }}
+<div style="margin:26px 0;padding:18px;text-align:center;background:#071013;border:1px solid #00e5f2;border-radius:14px;color:#fff;font:700 30px Consolas,monospace;letter-spacing:8px">{{ .Token }}</div>
+<p style="color:#93a4ab;font-size:13px;line-height:1.5">ARCHEON security code · 1 hour expiry. If you did not create this account, ignore this message.</p>
+</td></tr>
+<tr><td style="padding-top:20px;border-top:1px solid #1d3339;text-align:center;color:#70858e;font-size:12px">ARCHEON · Tu asistente, a tu manera</td></tr>
+</table></td></tr></table>
+</body>
+</html>

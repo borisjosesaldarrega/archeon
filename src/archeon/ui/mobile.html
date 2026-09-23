@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#071014">
+  <title>ARCHEON Mobile</title>
+  <link rel="stylesheet" href="/mobile.css">
+  <link rel="stylesheet" href="/mobile-fixes.css">
+</head>
+<body>
+  <div id="mobile-boot" class="boot-screen" role="status" aria-live="polite">
+    <div class="boot-mark">
+      <span class="boot-ring ring-one"></span>
+      <span class="boot-ring ring-two"></span>
+      <img src="/logo_asitente.png" alt="">
+    </div>
+    <p class="eyebrow" data-brand>ARCHEON MOBILE</p>
+    <h1>Preparando ARCHI</h1>
+    <p id="mobile-boot-status">Comprobando sesión y servicios locales…</p>
+    <div class="boot-progress" aria-hidden="true"><span></span></div>
+  </div>
+
+  <div id="mobile-auth" class="auth-screen" hidden>
+    <img src="/logo_asitente.png" alt="ARCHEON">
+    <div class="mobile-auth-head"><p class="eyebrow" data-i18n="access.system">ACCESO SEGURO</p><label class="mobile-language-picker"><span aria-hidden="true">◎</span><span class="sr-only">Idioma</span><select id="mobile-language-auth" class="mobile-language" aria-label="Idioma"></select></label></div>
+    <h1 data-mobile-product>ARCHEON Móvil</h1>
+    <p data-mobile-copy="accountSync">Usa la misma cuenta de tu PC para sincronizar chats, archivos y dispositivos.</p>
+    <div class="mobile-auth-switch"><button type="button" data-mobile-auth="login" data-i18n="access.login">Iniciar sesión</button><button type="button" data-mobile-auth="register" data-i18n="access.register">Crear cuenta</button></div>
+    <form id="mobile-login" class="mobile-auth-view active">
+      <label><span data-i18n="field.email">Correo</span><input id="mobile-email" type="email" autocomplete="username" required></label>
+      <label><span data-i18n="field.password">Contraseña</span><input id="mobile-password" type="password" autocomplete="current-password" required></label>
+      <button type="submit" data-i18n="access.login">Iniciar sesión</button>
+      <button type="button" class="text-action" data-mobile-auth="forgot" data-i18n="auth.forgot">Olvidé mi contraseña</button>
+      <button id="mobile-guest" type="button" class="secondary" data-i18n="access.guest">Continuar como invitado</button>
+    </form>
+    <form id="mobile-register" class="mobile-auth-view">
+      <label><span data-i18n="field.name">Nombre</span><input id="mobile-register-name" autocomplete="name" maxlength="40" required></label>
+      <label><span data-i18n="field.email">Correo</span><input id="mobile-register-email" type="email" autocomplete="username" required></label>
+      <label><span data-i18n="field.password">Contraseña</span><input id="mobile-register-password" type="password" autocomplete="new-password" minlength="10" required></label>
+      <label><span data-i18n="field.confirm_password">Repite la contraseña</span><input id="mobile-register-confirm" type="password" autocomplete="new-password" minlength="10" required></label>
+      <button type="submit" data-i18n="access.register">Crear cuenta</button>
+    </form>
+    <form id="mobile-verify" class="mobile-auth-view">
+      <h2 data-i18n="verify.title">Verifica tu cuenta</h2><p data-i18n="verify.note">Escribe el código de 8 dígitos enviado a tu correo.</p>
+      <label><span data-i18n="field.email">Correo</span><input id="mobile-verify-email" type="email" autocomplete="email" required></label>
+      <label><span data-i18n="verify.code">Código</span><input id="mobile-verify-code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{8}" minlength="8" maxlength="8" required></label>
+      <button type="submit" data-i18n="verify.submit">Verificar y continuar</button><button id="mobile-verify-resend" type="button" class="text-action" data-i18n="verify.resend">Reenviar código</button>
+    </form>
+    <form id="mobile-forgot" class="mobile-auth-view">
+      <p class="auth-step" data-mobile-auth-copy="stepOne">PASO 1 DE 2</p><h2 data-i18n="auth.recover">Recuperar acceso</h2><p data-mobile-auth-copy="recoverInstruction">Escribe el correo asociado a tu cuenta. Allí enviaremos el código de recuperación.</p>
+      <label><span data-i18n="field.email">Correo</span><input id="mobile-forgot-email" type="email" autocomplete="email" required></label>
+      <button type="submit" data-mobile-auth-copy="sendCode">Enviar código</button><button type="button" class="text-action" data-mobile-auth="reset" data-mobile-auth-copy="haveCode">Ya tengo un código</button>
+    </form>
+    <form id="mobile-reset" class="mobile-auth-view">
+      <p class="auth-step" data-mobile-auth-copy="stepTwo">PASO 2 DE 2</p><h2 data-mobile-auth-copy="newPassword">Nueva contraseña</h2><p data-mobile-auth-copy="resetInstruction">Indica el mismo correo, el código recibido y tu contraseña nueva.</p>
+      <label><span data-i18n="field.email">Correo</span><input id="mobile-reset-email" type="email" autocomplete="email" required></label>
+      <label><span data-i18n="verify.code">Código de 8 dígitos</span><input id="mobile-reset-code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{8}" minlength="8" maxlength="8" required></label>
+      <label><span data-mobile-auth-copy="newPassword">Nueva contraseña</span><input id="mobile-reset-password" type="password" autocomplete="new-password" minlength="10" required></label>
+      <label><span data-i18n="field.confirm_password">Repite la contraseña</span><input id="mobile-reset-confirm" type="password" autocomplete="new-password" minlength="10" required></label>
+      <button type="submit" data-mobile-auth-copy="updatePassword">Actualizar contraseña</button>
+    </form>
+    <form id="mobile-mfa" class="mobile-auth-view">
+      <h2 data-mobile-auth-copy="mfaTitle">Confirma el inicio de sesión</h2><p data-mobile-auth-copy="mfaInstruction">Escribe el código de 6 dígitos de tu aplicación autenticadora.</p>
+      <label><span data-i18n="verify.code">Código</span><input id="mobile-mfa-code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" minlength="6" maxlength="6" required></label>
+      <button type="submit" data-mobile-auth-copy="mfaSubmit">Verificar e iniciar sesión</button>
+    </form>
+    <output id="mobile-auth-error" aria-live="polite"></output>
+  </div>
+
+  <div id="mobile-app" class="mobile-app" hidden>
+    <header class="topbar">
+      <button id="mobile-menu" class="icon" aria-label="Abrir conversaciones">☰</button>
+      <div class="brand"><img src="/logo_asitente.png" alt=""><span><strong data-brand>ARCHEON</strong><small id="mobile-connection">Conectando…</small></span></div>
+      <button id="mobile-settings-open" class="icon settings-icon" aria-label="Ajustes">⚙</button>
+    </header>
+
+    <aside id="mobile-drawer" class="drawer" aria-label="Conversaciones">
+      <div class="drawer-head"><strong data-mobile-copy="conversations">Conversaciones</strong><button id="mobile-drawer-close" class="icon">×</button></div>
+      <button id="mobile-new-chat-drawer" class="new-chat"><span data-mobile-copy="newChat">＋ Nuevo chat</span></button>
+      <nav id="mobile-conversations"></nav>
+    </aside>
+    <button id="mobile-scrim" class="scrim" aria-label="Cerrar menú" hidden></button>
+
+    <dialog id="mobile-settings" class="mobile-settings">
+      <header><div><p class="eyebrow">ARCHEON</p><h2 data-mobile-ui="settings">Ajustes</h2></div><button id="mobile-settings-close" class="icon" type="button" aria-label="Cerrar">×</button></header>
+      <div class="settings-scroll">
+        <section class="settings-card"><h3 data-mobile-ui="general">General</h3><label><span data-i18n="settings.interface_language">Idioma</span><select id="mobile-language-app" class="mobile-language" aria-label="Idioma"></select></label></section>
+        <section id="mobile-appearance" class="settings-card drawer-appearance"><h3 data-mobile-ui="appearance">Apariencia</h3><label><span data-mobile-ui="color">Color</span><input id="mobile-accent" type="color" value="#00e8ff"></label><div><label class="appearance-file"><span data-mobile-ui="chooseBackground">Elegir fondo</span><input id="mobile-background-file" type="file" accept="image/*" hidden></label><button id="mobile-background-adjust" type="button" data-mobile-appearance="title">Ajustar fondo</button><button id="mobile-background-clear" type="button" data-mobile-ui="clearBackground">Quitar fondo</button></div></section>
+        <section class="settings-card"><h3>ARCHI</h3><label><span data-mobile-ui="intelligence">Nivel de inteligencia</span><select id="mobile-intelligence"><option value="low" data-mobile-ui="intelligenceLow">Baja</option><option value="medium" data-mobile-ui="intelligenceMedium">Media</option><option value="high" data-mobile-ui="intelligenceHigh">Alta</option></select></label><p id="mobile-intelligence-help" class="settings-help"></p></section>
+        <section class="settings-card"><h3 data-mobile-ui="voiceAudio">Voz y audio</h3><p data-mobile-ui="voiceAudioHelp">Configura dictado, conversación por voz y permisos del micrófono.</p><label><span>Nombre de activación</span><input id="mobile-wake-name" maxlength="24" value="ARCHI" autocomplete="off"></label><label class="mobile-check"><input id="mobile-wake-enabled" type="checkbox"><span>Activar por voz mientras ARCHEON está abierto</span></label><p class="settings-help">Por privacidad y batería, la escucha se detiene al salir de la app. Puedes decir el nombre elegido y después tu orden.</p><button id="mobile-settings-permissions" type="button" data-mobile-ui="managePermissions">Administrar permisos</button></section>
+        <section class="settings-card" data-account-only><h3>Cloud · Dispositivos · Archivos</h3><p>Sincroniza contenido y acciones con tus dispositivos ARCHEON.</p><div class="settings-actions"><button type="button" data-settings-panel-target="files">Cloud</button><button type="button" data-settings-panel-target="devices">Dispositivos</button></div></section>
+        <section class="settings-card"><h3 data-mobile-ui="privacyAccess">Privacidad · Permisos · Accesibilidad</h3><p data-mobile-ui="privacyHelp">Los permisos se solicitan solo cuando usas una función.</p><button id="mobile-settings-permissions-secondary" type="button" data-mobile-ui="reviewPermissions">Revisar permisos</button></section>
+        <section class="settings-card account-card"><h3 data-mobile-ui="account">Cuenta</h3><div data-guest-only><p data-mobile-copy="accountBenefits">Activa ARCHEON Cloud, sincronización y dispositivos.</p><div class="settings-actions"><button id="mobile-login-cta" type="button" data-i18n="access.login">Iniciar sesión</button><button id="mobile-register-cta" type="button" data-i18n="access.register">Crear cuenta</button></div></div><div data-account-only><strong id="mobile-account-name">Cuenta ARCHEON</strong><small id="mobile-account-email"></small><small id="mobile-account-sync">Sincronización activa</small></div><button id="mobile-logout" class="logout" type="button">Cerrar sesión</button></section>
+        <section class="settings-card"><h3 data-mobile-ui="about">Acerca de</h3><p>ARCHEON Mobile · DZKnight Company</p><button id="mobile-repeat-tour" type="button">Repetir recorrido</button></section>
+      </div>
+    </dialog>
+
+    <dialog id="mobile-background-editor" class="mobile-background-editor" aria-labelledby="mobile-background-title">
+      <header><div><p class="eyebrow" data-mobile-ui="appearance">APARIENCIA</p><h2 id="mobile-background-title" data-mobile-appearance="title">Ajustar fondo</h2></div><button id="mobile-background-cancel" class="icon" type="button" aria-label="Cerrar">×</button></header>
+      <p data-mobile-appearance="help">Centra la parte de la imagen que quieres conservar. El fondo no cambiará hasta que pulses Guardar.</p>
+      <div id="mobile-background-frame" class="mobile-background-frame"><img id="mobile-background-preview" alt="Vista previa del fondo" draggable="false"></div>
+      <label><span data-mobile-appearance="zoom">Zoom</span><input id="mobile-background-zoom" type="range" min="100" max="220" value="100"></label>
+      <label><span data-mobile-appearance="horizontal">Posición horizontal</span><input id="mobile-background-x" type="range" min="0" max="100" value="50"></label>
+      <label><span data-mobile-appearance="vertical">Posición vertical</span><input id="mobile-background-y" type="range" min="0" max="100" value="50"></label>
+      <div class="mobile-background-actions"><button id="mobile-background-reset" type="button" data-mobile-appearance="center">Centrar</button><button id="mobile-background-save" class="primary" type="button" data-mobile-appearance="save">Guardar fondo</button></div>
+    </dialog>
+
+    <dialog id="mobile-tour" class="mobile-tour" aria-labelledby="mobile-tour-title">
+      <p id="mobile-tour-progress" class="eyebrow">BIENVENIDA</p>
+      <h2 id="mobile-tour-title">Bienvenido a ARCHEON</h2>
+      <p id="mobile-tour-body">¿Quieres iniciar un recorrido para conocer la aplicación?</p>
+      <div class="mobile-tour-actions">
+        <button id="mobile-tour-skip" type="button">No, quiero descubrirlo solo</button>
+        <button id="mobile-tour-back" type="button" hidden>Anterior</button>
+        <button id="mobile-tour-next" type="button">Sí, iniciar tour</button>
+      </div>
+    </dialog>
+
+    <dialog id="mobile-mascot-error" class="mascot-error-dialog" aria-labelledby="mobile-mascot-error-title">
+      <img src="/archeon-cloud-mascot.png" alt="" aria-hidden="true">
+      <h2 id="mobile-mascot-error-title">No pude completar eso</h2>
+      <p id="mobile-mascot-error-message"></p>
+      <button id="mobile-mascot-error-close" type="button">Entendido</button>
+    </dialog>
+
+    <main>
+      <section id="mobile-chat-panel" class="panel active">
+        <div id="mobile-messages" class="messages" aria-live="polite"></div>
+        <section id="mobile-media-player" class="mobile-media-player" hidden aria-label="Reproductor en este teléfono">
+          <header><div><small>REPRODUCIENDO EN ESTE TELÉFONO</small><strong id="mobile-media-title">—</strong></div><button id="mobile-media-close" type="button" aria-label="Detener y cerrar">×</button></header>
+          <audio id="mobile-media-audio" controls preload="auto"></audio>
+          <iframe id="mobile-media-frame" title="Reproductor multimedia" allow="autoplay; encrypted-media; picture-in-picture" referrerpolicy="strict-origin-when-cross-origin" hidden></iframe>
+        </section>
+        <div id="mobile-attachment-previews" class="mobile-attachment-previews" aria-live="polite"></div>
+        <form id="mobile-command" class="composer">
+          <button id="mobile-attach" class="composer-attach" type="button" aria-label="Adjuntar">＋</button>
+          <textarea id="mobile-command-text" rows="1" maxlength="16000" data-i18n-placeholder="command.placeholder" placeholder="Escribe una orden" required></textarea>
+          <select id="mobile-composer-intelligence" class="composer-intelligence" aria-label="Nivel de inteligencia">
+            <option value="low" data-mobile-ui="intelligenceLow">Baja</option>
+            <option value="medium" data-mobile-ui="intelligenceMedium" selected>Media</option>
+            <option value="high" data-mobile-ui="intelligenceHigh">Alta</option>
+          </select>
+          <button id="mobile-dictate" class="composer-tool" type="button" aria-label="Dictar sin enviar" title="Dictar sin enviar">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15a4 4 0 0 0 4-4V6a4 4 0 1 0-8 0v5a4 4 0 0 0 4 4Zm7-4a1 1 0 0 0-2 0 5 5 0 0 1-10 0 1 1 0 0 0-2 0 7 7 0 0 0 6 6.92V20H8a1 1 0 1 0 0 2h8a1 1 0 1 0 0-2h-3v-2.08A7 7 0 0 0 19 11Z"/></svg>
+          </button>
+          <button id="mobile-primary-action" class="composer-primary is-voice" type="button" aria-label="Hablar con ARCHI" title="Hablar con ARCHI">
+            <svg class="voice-symbol" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4M8 7v10M12 4v16M16 7v10M20 10v4"/></svg>
+            <svg class="send-symbol" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6"/></svg>
+          </button>
+        </form>
+        <div id="mobile-attachment-menu" class="mobile-attachment-menu" hidden><button type="button" data-mobile-attachment="image" data-mobile-ui="photo">Foto</button><button type="button" data-mobile-attachment="video" data-mobile-ui="video">Vídeo</button><button type="button" data-mobile-attachment="file" data-mobile-ui="file">Archivo</button><button type="button" data-mobile-attachment="camera" data-mobile-ui="camera">Cámara</button></div>
+        <input id="mobile-attachment-image" type="file" accept="image/*" multiple hidden><input id="mobile-attachment-video" type="file" accept="video/*" multiple hidden><input id="mobile-attachment-file" type="file" multiple hidden><input id="mobile-attachment-camera" type="file" accept="image/*" capture="environment" hidden>
+      </section>
+
+      <section id="mobile-files-panel" class="panel">
+        <header><div><p class="eyebrow">ARCHEON CLOUD</p><h2>Archivos</h2></div><label class="upload">Subir<input id="mobile-file" type="file" hidden></label></header>
+        <p id="mobile-cloud-note" class="note">Los archivos se aíslan por cuenta y se verifican antes de mostrarse.</p>
+        <div id="mobile-files" class="cards"></div>
+      </section>
+
+      <section id="mobile-devices-panel" class="panel">
+        <header><div><p class="eyebrow">CONTROL REMOTO</p><h2>Dispositivos</h2></div></header>
+        <p class="note">Solo se aceptarán órdenes de dispositivos emparejados. Apagar el PC exige activación y confirmación adicional.</p>
+        <div id="mobile-devices" class="cards"></div>
+      </section>
+
+      <section id="mobile-permissions-panel" class="panel">
+        <header><div><p class="eyebrow">CONTROL Y PRIVACIDAD</p><h2>Permisos</h2></div><button id="mobile-refresh-permissions" class="small-action" type="button">Actualizar</button></header>
+        <p id="mobile-permissions-note" class="note">ARCHEON usa acceso mínimo y solicita cada permiso cuando una función lo necesita.</p>
+        <div class="permission-section">
+          <h3>Este teléfono</h3>
+          <div id="mobile-browser-permissions" class="cards"></div>
+        </div>
+        <div class="permission-section" data-account-only>
+          <h3>ARCHEON en el PC</h3>
+          <div id="mobile-app-permissions" class="cards"></div>
+        </div>
+        <div class="permission-section" data-account-only>
+          <h3>Acciones remotas</h3>
+          <article class="card permission-card locked">
+            <div><strong>Apagado y reinicio remoto</strong><small>Requiere cuenta, dispositivo emparejado y confirmación en el PC.</small></div>
+            <span class="permission-state blocked">No habilitado</span>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <nav class="bottom-nav">
+      <button data-panel="chat" class="active"><span>⌁</span><b data-mobile-copy="chat">Chat</b></button>
+      <button data-panel="files" data-account-only><span>▱</span><b data-i18n="nav.cloud">Cloud</b></button>
+      <button data-panel="devices" data-account-only><span>⌘</span><b data-mobile-copy="devices">Dispositivos</b></button>
+      <button data-panel="permissions"><span>◉</span><b data-mobile-copy="permissions">Permisos</b></button>
+    </nav>
+    <div id="mobile-toast" class="toast" hidden></div>
+  </div>
+  <script src="/mobile-runtime-loader.js"></script>
+</body>
+</html>

@@ -67,6 +67,7 @@ class SupabaseSettingsSync:
     def __init__(self, url: str, publishable_key: str, data_dir: Path, *, timeout: float = 8.0) -> None:
         self._url = url.rstrip("/")
         self._key = publishable_key
+        self.configured = self._url.startswith("https://") and bool(self._key.strip())
         self._timeout = timeout
         self._queue_path = data_dir / "sync-pending.json"
         self._device_path = data_dir / "device-id.json"
@@ -178,6 +179,8 @@ class SupabaseSettingsSync:
         account: dict[str, Any],
         device: dict[str, Any],
     ) -> dict[str, Any]:
+        if not self.configured:
+            raise ValueError("sync_backend_not_configured")
         if not user_id or not access_token:
             raise ValueError("account_session_required")
         try:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 import time
 from datetime import UTC, datetime
@@ -14,11 +15,23 @@ from archeon.sync import SupabaseSettingsSync
 
 
 ROOT = Path(__file__).resolve().parents[1]
-URL = "https://rcgipowzivogyqbuwzlv.supabase.co"
-KEY = "sb_publishable_V0kfZlDv6HKNudCl_vObeQ_pRbDU1RU"
+URL = os.environ.get("ARCHEON_SUPABASE_URL", "").strip().rstrip("/")
+KEY = os.environ.get("ARCHEON_SUPABASE_PUBLISHABLE_KEY", "").strip()
 
 
 def main() -> int:
+    if not URL or not KEY:
+        print(
+            json.dumps(
+                {
+                    "status": "NOT CONFIGURED",
+                    "reason": "Set ARCHEON_SUPABASE_URL and ARCHEON_SUPABASE_PUBLISHABLE_KEY.",
+                },
+                indent=2,
+            )
+        )
+        return 2
+
     envelope = {
         "version": 4,
         "updated_at": datetime.now(UTC).isoformat(),

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Iterable
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,6 +22,21 @@ class VoiceRuntimeProfile:
     vad_mode: int
     silence_ms: int
     max_utterance_ms: int
+
+
+@dataclass(frozen=True, slots=True)
+class VoiceStyleSpec:
+    """Provider-neutral description of a speaking style.
+
+    ``rate_delta`` and ``pitch`` are intentionally modest hints. Providers may
+    implement them natively, approximate them, or degrade to ``fallback``.
+    """
+
+    id: str
+    display_name: str
+    rate_delta: int = 0
+    pitch: str | None = None
+    fallback: str = "natural"
 
 
 MODELS = {
@@ -43,6 +59,45 @@ PROFILES = {
     "balanced": VoiceRuntimeProfile("balanced", "vosk-small-es", 2, 700, 12_000),
     "performance": VoiceRuntimeProfile("performance", "vosk-small-es", 1, 800, 15_000),
 }
+
+
+VOICE_STYLES = {
+    "natural": VoiceStyleSpec("natural", "Natural"),
+    "deep": VoiceStyleSpec("deep", "Deep", -1, "-3"),
+    "technological": VoiceStyleSpec("technological", "Technological", 1, "+1"),
+    "warm": VoiceStyleSpec("warm", "Warm", -1, "-1"),
+    "professional": VoiceStyleSpec("professional", "Professional"),
+    "energetic": VoiceStyleSpec("energetic", "Energetic", 2, "+1"),
+    "calm": VoiceStyleSpec("calm", "Calm", -2, "-1"),
+    "cinematic": VoiceStyleSpec("cinematic", "Cinematic", -2, "-3"),
+    # Custom is a stable public choice. A provider without a custom-style
+    # implementation must degrade safely instead of failing synthesis.
+    "custom": VoiceStyleSpec("custom", "Custom", fallback="natural"),
+}
+
+VOICE_STYLE_ALIASES = {
+    "deep_tech": "deep",
+    "crisp": "technological",
+    "tech": "technological",
+}
+
+
+def resolve_voice_style(
+    style: str | None,
+    supported: Iterable[str] | None = None,
+) -> VoiceStyleSpec:
+    """Resolve a style and safely degrade it for a provider's capabilities."""
+
+    requested = (style or "natural").strip().casefold().replace("-", "_")
+    requested = VOICE_STYLE_ALIASES.get(requested, requested)
+    spec = VOICE_STYLES.get(requested, VOICE_STYLES["natural"])
+    if supported is None:
+        return spec
+    available = {item.casefold() for item in supported}
+    if spec.id in available:
+        return spec
+    fallback = VOICE_STYLES.get(spec.fallback, VOICE_STYLES["natural"])
+    return fallback if fallback.id in available else VOICE_STYLES["natural"]
 
 
 def resolve_profile(name: str) -> VoiceRuntimeProfile:

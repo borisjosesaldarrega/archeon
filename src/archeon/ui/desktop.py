@@ -8,8 +8,9 @@ from threading import Event as ThreadEvent
 from threading import Thread, Timer
 from typing import Any
 
-from archeon.core.config import AppConfig
+from archeon.core.config import AppConfig, GhostConfig
 from archeon.core.events import EventBus
+from archeon.core.paths import ResourceManager
 
 
 class DesktopUnavailable(RuntimeError):
@@ -27,6 +28,7 @@ class DesktopHost:
         action_handler: Callable[[str, dict[str, Any]], dict[str, Any]],
         media_status_handler: Callable[[], dict[str, Any]],
         artwork_handler: Callable[[str], tuple[str, bytes] | None],
+        resources: ResourceManager | None = None,
     ) -> None:
         self._events = events
         self._base_url = base_url
@@ -35,6 +37,7 @@ class DesktopHost:
         self._action_handler = action_handler
         self._media_status_handler = media_status_handler
         self._artwork_handler = artwork_handler
+        self._resources = resources
         self._stopping = ThreadEvent()
         self._bridge: Thread | None = None
 
@@ -50,20 +53,48 @@ class DesktopHost:
         if initial_mode == "ghost":
             from archeon.ui.ghost_native import NativeGhostHost
 
+            # ConfigurationManager swaps its snapshot after a save. Resolve the
+            # latest values so Ghost shares the current logo and personalization.
+            current = self._action_handler("settings.get", {})
+            settings = current.get("settings", {}) if current.get("ok") else {}
+            ghost_values = settings.get("ghost", {})
+            current_ghost = GhostConfig(**{
+                key: ghost_values.get(key, getattr(self._config.ghost, key))
+                for key in GhostConfig.__dataclass_fields__
+            })
+            current_appearance = settings.get("appearance", {})
+            current_language = settings.get("language", {})
+            current_assistant = settings.get("assistant", {})
+            current_media = settings.get("media", {})
+            interface_layout = current_appearance.get("interface_layout", {})
+            orb_layout = interface_layout.get("orb", {}) if isinstance(interface_layout, dict) else {}
+
             outcome = NativeGhostHost(
                 self._events,
-                self._config.ghost,
+                current_ghost,
                 action_handler=self._action_handler,
                 media_status_handler=self._media_status_handler,
                 artwork_handler=self._artwork_handler,
-                locale=self._config.locale,
-                display_name=self._config.assistant.wake_name,
+                locale=str(current_language.get("interface", self._config.locale)),
+                display_name=str(current_assistant.get("wake_name", self._config.assistant.wake_name)),
+                logo_path=current_appearance.get("logo_path", self._config.appearance.logo_path),
+                logo_position_x=float(current_appearance.get("logo_position_x", 0)),
+                logo_position_y=float(current_appearance.get("logo_position_y", 0)),
+                logo_zoom=int(current_appearance.get("logo_zoom", 100)),
+                accent_color=str(orb_layout.get("color") or current_appearance.get("accent_color") or "#00F3FF"),
+                show_album_art=bool(current_media.get("show_album_art", self._config.media.show_album_art)),
+                vinyl_orb=bool(current_media.get("vinyl_orb", self._config.media.vinyl_orb)),
+                resources=self._resources,
             ).run(
                 auto_exit_seconds=auto_exit_seconds,
                 open_radial=benchmark_radial,
             )
-            if outcome == "main":
-                self.run(initial_mode="main", auto_exit_seconds=auto_exit_seconds)
+            if outcome in {"main", "settings", "launcher", "launcher-add"}:
+                # Expanding Ghost means the user's last mode is now the full
+                # interface. Persist it before creating WebView so a later
+                # launch does not incorrectly reopen Ghost/radial.
+                self._action_handler("window.main", {})
+                self.run(initial_mode=outcome, auto_exit_seconds=auto_exit_seconds)
             return
         try:
             import webview
@@ -90,7 +121,7 @@ class DesktopHost:
             if window is None:
                 window = webview.create_window(
                     "ARCHEON",
-                    f"{self._base_url}/?token={self._token}",
+                    f"{self._base_url}/?token={self._token}" + (f"&view={initial_mode}" if initial_mode != "main" else ""),
                     width=1100,
                     height=720,
                     min_size=(760, 520),
@@ -99,6 +130,18 @@ class DesktopHost:
                 )
                 windows["main"] = window
                 window.events.closed += destroy_all
+                if initial_mode == "main":
+                    def apply_initial_window_mode() -> None:
+                        try:
+                            mode = self._config.startup.window_mode
+                            if self._config.startup.start_minimized or mode == "minimized":
+                                window.minimize()
+                            elif mode == "maximized":
+                                window.maximize()
+                        except Exception:
+                            pass
+
+                    window.events.loaded += apply_initial_window_mode
             return window
 
         def bridge() -> None:

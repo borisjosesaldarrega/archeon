@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/root" android:layout_width="match_parent" android:layout_height="match_parent"
+    android:background="@color/archeon_background">
+    <WebView android:id="@+id/web" android:layout_width="match_parent" android:layout_height="match_parent"
+        android:visibility="invisible" />
+    <LinearLayout android:id="@+id/native_splash" android:layout_width="match_parent"
+        android:layout_height="match_parent" android:gravity="center" android:orientation="vertical"
+        android:padding="36dp">
+        <ImageView android:id="@+id/splash_image" android:layout_width="112dp" android:layout_height="112dp"
+            android:contentDescription="ARCHEON" android:scaleType="fitCenter" android:src="@drawable/archeon_logo" />
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:layout_marginTop="24dp" android:letterSpacing="0.22" android:text="ARCHEON"
+            android:textColor="@color/archeon_accent" android:textSize="13sp" />
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:layout_marginTop="8dp" android:text="ARCHI" android:textColor="#F2F7F8"
+            android:textSize="30sp" android:textStyle="bold" />
+        <TextView android:id="@+id/splash_status" android:layout_width="wrap_content"
+            android:layout_height="wrap_content" android:layout_marginTop="16dp"
+            android:text="Iniciando ARCHEON…" android:textColor="#8AA0AA" android:textSize="14sp" />
+        <ProgressBar android:id="@+id/splash_progress" android:layout_width="180dp" android:layout_height="4dp"
+            android:layout_marginTop="22dp" android:indeterminate="true"
+            android:indeterminateTint="@color/archeon_accent" style="?android:attr/progressBarStyleHorizontal" />
+        <Button android:id="@+id/splash_retry" android:layout_width="wrap_content"
+            android:layout_height="48dp" android:layout_marginTop="22dp"
+            android:backgroundTint="@color/archeon_accent" android:text="Reintentar"
+            android:textColor="@color/archeon_background" android:textStyle="bold"
+            android:visibility="gone" />
+    </LinearLayout>
+</FrameLayout>

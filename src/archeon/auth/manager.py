@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import ctypes
+import base64
 import hashlib
 import hmac
 import json
 import os
+import re
 import secrets
 import time
 from ctypes import wintypes
@@ -20,6 +22,7 @@ from urllib.request import Request, urlopen
 
 from archeon.core.events import EventBus
 from archeon.core.lifecycle import ManagedComponent
+from archeon.auth.email import normalize_email
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,6 +50,7 @@ class Session:
     mode: str
     email_verified: bool = False
     pending_confirmation: bool = False
+    mfa_required: bool = False
 
     def public(self) -> dict[str, Any]:
         return {
@@ -54,17 +58,21 @@ class Session:
             "identity": asdict(self.identity),
             "email_verified": self.email_verified,
             "pending_confirmation": self.pending_confirmation,
+            "mfa_required": self.mfa_required,
         }
 
 
 class AuthProvider(Protocol):
     name: str
 
-    def register(self, email: str, password: str, display_name: str) -> ProviderSession: ...
+    def register(self, email: str, password: str, display_name: str, locale: str = "es") -> ProviderSession: ...
     def login(self, email: str, password: str) -> ProviderSession: ...
     def restore(self, refresh_token: str) -> ProviderSession: ...
     def refresh(self, refresh_token: str) -> ProviderSession: ...
     def forgot_password(self, email: str) -> None: ...
+    def reset_password(self, email: str, token: str, password: str) -> None: ...
+    def verify_signup(self, email: str, token: str) -> ProviderSession: ...
+    def resend_signup(self, email: str) -> None: ...
     def reauthenticate(self, access_token: str) -> None: ...
     def update_user(self, access_token: str, changes: dict[str, str]) -> ProviderSession: ...
     def logout(self, access_token: str = "", scope: str = "global") -> None: ...
@@ -120,7 +128,7 @@ class WindowsDpapiSessionVault:
         source, source_buffer = cls._blob(value)
         output = _DataBlob()
         ok = ctypes.windll.crypt32.CryptProtectData(
-            ctypes.byref(source), "ARCHEON Supabase session", None, None, None, 0, ctypes.byref(output)
+            ctypes.byref(source), "ARCHEON Supabase session", None, None, None, 0x1, ctypes.byref(output)
         )
         del source_buffer
         if not ok:
@@ -135,7 +143,7 @@ class WindowsDpapiSessionVault:
         source, source_buffer = WindowsDpapiSessionVault._blob(value)
         output = _DataBlob()
         ok = ctypes.windll.crypt32.CryptUnprotectData(
-            ctypes.byref(source), None, None, None, None, 0, ctypes.byref(output)
+            ctypes.byref(source), None, None, None, None, 0x1, ctypes.byref(output)
         )
         del source_buffer
         if not ok:
@@ -193,18 +201,15 @@ class DevelopmentAuthProvider:
 
     @staticmethod
     def _normalize(email: str) -> str:
-        normalized = email.strip().casefold()
-        if "@" not in normalized or len(normalized) > 254:
-            raise ValueError("invalid_email")
-        return normalized
+        return normalize_email(email, reject_disposable=True)
 
     @staticmethod
     def _derive(password: str, salt: bytes) -> bytes:
         return hashlib.scrypt(password.encode(), salt=salt, n=2**14, r=8, p=1)
 
-    def register(self, email: str, password: str, display_name: str) -> ProviderSession:
+    def register(self, email: str, password: str, display_name: str, locale: str = "es") -> ProviderSession:
         normalized = self._normalize(email)
-        if len(password) < 8:
+        if len(password) < 10:
             raise ValueError("password_too_short")
         name = display_name.strip()
         if not name or len(name) > 40:
@@ -243,6 +248,15 @@ class DevelopmentAuthProvider:
     refresh = restore
 
     def forgot_password(self, email: str) -> None:
+        raise ValueError("cloud_auth_unavailable")
+
+    def reset_password(self, email: str, token: str, password: str) -> None:
+        raise ValueError("cloud_auth_unavailable")
+
+    def verify_signup(self, email: str, token: str) -> ProviderSession:
+        raise ValueError("cloud_auth_unavailable")
+
+    def resend_signup(self, email: str) -> None:
         raise ValueError("cloud_auth_unavailable")
 
     def reauthenticate(self, access_token: str) -> None:
@@ -296,7 +310,15 @@ class SupabaseAuthProvider:
                 detail = json.loads(error.read().decode())
             except (UnicodeError, ValueError, json.JSONDecodeError):
                 detail = {}
-            code = str(detail.get("code") or detail.get("error_code") or "auth_request_failed")
+            # GoTrue commonly returns a numeric HTTP-style ``code`` together
+            # with the stable machine-readable ``error_code``.  Showing the
+            # numeric value (for example ``400``) leaves both UIs without an
+            # actionable message, so prefer the documented auth error code.
+            raw_code = detail.get("error_code") or detail.get("code")
+            code = str(raw_code) if isinstance(raw_code, str) and raw_code else "auth_request_failed"
+            policy_message = str(detail.get("msg") or detail.get("message") or "")
+            if policy_message in {"account_exists", "disposable_email_not_allowed"}:
+                code = policy_message
             if error.code == 429:
                 code = "auth_rate_limited"
             raise ValueError(code) from None
@@ -317,22 +339,38 @@ class SupabaseAuthProvider:
             str(metadata.get("display_name") or email.split("@", 1)[0] or "Usuario"),
         )
         access_token = str(value.get("access_token") or "")
+        factors = user.get("factors") if isinstance(user.get("factors"), list) else []
+        has_verified_factor = any(
+            isinstance(factor, dict) and str(factor.get("status") or "").casefold() == "verified"
+            for factor in factors
+        )
+        assurance = ""
+        if access_token:
+            try:
+                segment = access_token.split(".")[1]
+                padding = "=" * (-len(segment) % 4)
+                claims = json.loads(base64.urlsafe_b64decode(segment + padding).decode("utf-8"))
+                assurance = str(claims.get("aal") or "") if isinstance(claims, dict) else ""
+            except (IndexError, UnicodeError, ValueError, json.JSONDecodeError):
+                assurance = ""
         return ProviderSession(
             identity, access_token, str(value.get("refresh_token") or ""),
             int(value.get("expires_at") or (time.time() + int(value.get("expires_in") or 0))),
             bool(user.get("email_confirmed_at") or user.get("confirmed_at")), not access_token,
+            has_verified_factor and assurance != "aal2",
         )
 
-    def register(self, email: str, password: str, display_name: str) -> ProviderSession:
-        if "@" not in email.strip() or len(email.strip()) > 254:
-            raise ValueError("invalid_email")
+    def register(self, email: str, password: str, display_name: str, locale: str = "es") -> ProviderSession:
+        email = normalize_email(email, reject_disposable=True)
         if len(password) < 10:
             raise ValueError("password_too_short")
         if not display_name.strip() or len(display_name.strip()) > 40:
             raise ValueError("invalid_display_name")
-        return self._result(self._request("POST", "signup", {"email": email, "password": password, "data": {"display_name": display_name}}))
+        language = locale.strip().lower() if locale.strip().lower() in {"es", "en", "pt", "fr", "de", "it", "zh", "ja", "ko", "ru", "ar", "hi"} else "es"
+        return self._result(self._request("POST", "signup", {"email": email, "password": password, "data": {"display_name": display_name, "locale": language}}))
 
     def login(self, email: str, password: str) -> ProviderSession:
+        email = normalize_email(email, canonical_aliases=False)
         return self._result(self._request("POST", f"token?{urlencode({'grant_type': 'password'})}", {"email": email, "password": password}))
 
     def restore(self, refresh_token: str) -> ProviderSession:
@@ -342,7 +380,41 @@ class SupabaseAuthProvider:
         return self._result(self._request("POST", f"token?{urlencode({'grant_type': 'refresh_token'})}", {"refresh_token": refresh_token}))
 
     def forgot_password(self, email: str) -> None:
-        self._request("POST", "recover", {"email": email})
+        self._request("POST", "recover", {"email": normalize_email(email, canonical_aliases=False)})
+
+    def reset_password(self, email: str, token: str, password: str) -> None:
+        code = token.strip()
+        if len(code) != 8 or not code.isdecimal():
+            raise ValueError("invalid_verification_code")
+        if len(password) < 10:
+            raise ValueError("password_too_short")
+        verified = self._request(
+            "POST",
+            "verify",
+            {"email": normalize_email(email), "token": code, "type": "recovery"},
+        )
+        access_token = str(verified.get("access_token") or "")
+        if not access_token:
+            raise ValueError("invalid_verification_code")
+        self._request("PUT", "user", {"password": password}, access_token=access_token)
+        # Recovery tokens are single-purpose. End the temporary provider session
+        # so password recovery never signs ARCHEON in implicitly.
+        self.logout(access_token, "local")
+
+    def verify_signup(self, email: str, token: str) -> ProviderSession:
+        code = token.strip()
+        if len(code) != 8 or not code.isdecimal():
+            raise ValueError("invalid_verification_code")
+        return self._result(
+            self._request(
+                "POST",
+                "verify",
+                {"email": normalize_email(email), "token": code, "type": "signup"},
+            )
+        )
+
+    def resend_signup(self, email: str) -> None:
+        self._request("POST", "resend", {"email": normalize_email(email), "type": "signup"})
 
     def reauthenticate(self, access_token: str) -> None:
         self._request("POST", "reauthenticate", {}, access_token=access_token)
@@ -363,6 +435,10 @@ class SupabaseAuthProvider:
         return [factor for factor in factors if isinstance(factor, dict)]
 
     def mfa_verify(self, access_token: str, factor_id: str, code: str) -> ProviderSession:
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", factor_id):
+            raise ValueError("invalid_mfa_factor")
+        if not re.fullmatch(r"\d{6}", code):
+            raise ValueError("invalid_mfa_code")
         challenge = self._request("POST", f"factors/{factor_id}/challenge", {}, access_token=access_token)
         verified = self._request("POST", f"factors/{factor_id}/verify", {"challenge_id": challenge.get("id"), "code": code}, access_token=access_token)
         return self._result(verified)
@@ -372,6 +448,26 @@ class SupabaseAuthProvider:
 
     def delete_account(self, access_token: str) -> None:
         self._request("POST", "/rest/v1/rpc/delete_own_account", {}, access_token=access_token)
+
+
+class UnconfiguredAuthProvider:
+    """Guest-safe provider used when no real account backend is configured."""
+
+    name = "not_configured"
+
+    @staticmethod
+    def _unavailable(*_args: Any, **_kwargs: Any) -> Any:
+        raise ValueError("auth_backend_not_configured")
+
+    register = login = restore = refresh = forgot_password = reset_password = _unavailable
+    verify_signup = resend_signup = reauthenticate = update_user = _unavailable
+    mfa_enroll = mfa_verify = mfa_unenroll = delete_account = _unavailable
+
+    def mfa_factors(self, _access_token: str) -> list[dict[str, Any]]:
+        return []
+
+    def logout(self, access_token: str = "", scope: str = "global") -> None:
+        return None
 
 
 class AuthManager(ManagedComponent):
@@ -391,15 +487,21 @@ class AuthManager(ManagedComponent):
     def guest(self) -> Session:
         return self._create(ProviderSession(Identity(f"guest-{secrets.token_hex(8)}", "", "Invitado")), "guest")
 
-    def register(self, email: str, password: str, display_name: str) -> Session:
-        return self._create(self._provider.register(email, password, display_name), "account")
+    def register(self, email: str, password: str, display_name: str, locale: str = "es") -> Session:
+        return self._create(self._provider.register(email, password, display_name, locale), "account")
 
     def login(self, email: str, password: str) -> Session:
         return self._create(self._provider.login(email, password), "account")
 
     def restore(self) -> Session | None:
         envelope = self._vault.load()
-        if not envelope or not isinstance(envelope.get("refresh_token"), str):
+        if not envelope:
+            return None
+        if envelope.get("mode") == "guest":
+            user_id = str(envelope.get("user_id") or f"guest-{secrets.token_hex(8)}")
+            return self._create(ProviderSession(Identity(user_id, "", "Invitado")), "guest")
+        if not isinstance(envelope.get("refresh_token"), str):
+            self._vault.clear()
             return None
         try:
             return self._create(self._provider.restore(envelope["refresh_token"]), "account")
@@ -415,6 +517,15 @@ class AuthManager(ManagedComponent):
     def forgot_password(self, email: str) -> None:
         self._provider.forgot_password(email)
 
+    def reset_password(self, email: str, token: str, password: str) -> None:
+        self._provider.reset_password(email, token, password)
+
+    def verify_signup(self, email: str, token: str) -> Session:
+        return self._create(self._provider.verify_signup(email, token), "account")
+
+    def resend_signup(self, email: str) -> None:
+        self._provider.resend_signup(email)
+
     def reauthenticate(self, token: str) -> None:
         self._provider.reauthenticate(self._provider_for(token).access_token)
 
@@ -422,7 +533,7 @@ class AuthManager(ManagedComponent):
         current = self._provider_for(token)
         updated = self._provider.update_user(current.access_token, changes)
         if not updated.access_token:
-            updated = ProviderSession(updated.identity, current.access_token, current.refresh_token, current.expires_at, updated.email_verified, updated.pending_confirmation)
+            updated = ProviderSession(updated.identity, current.access_token, current.refresh_token, current.expires_at, updated.email_verified, updated.pending_confirmation, updated.mfa_required)
         return self._replace(token, updated)
 
     def get(self, token: str) -> Session | None:
@@ -432,6 +543,8 @@ class AuthManager(ManagedComponent):
     def cloud_identity(self, token: str) -> tuple[Identity, str]:
         """Return a fresh provider credential for an internal authenticated request."""
         current = self._provider_for(token)
+        if current.mfa_required:
+            raise ValueError("mfa_verification_required")
         if current.expires_at and current.expires_at <= int(time.time()) + 30:
             updated = self._provider.refresh(current.refresh_token)
             with self._lock:
@@ -440,9 +553,11 @@ class AuthManager(ManagedComponent):
                 self._provider_sessions[token] = updated
                 self._sessions[token] = Session(
                     token, updated.identity, "account", updated.email_verified, updated.pending_confirmation,
+                    updated.mfa_required,
                 )
             if updated.refresh_token:
                 self._vault.save({
+                    "mode": "account",
                     "refresh_token": updated.refresh_token,
                     "user_id": updated.identity.user_id,
                     "saved_at": int(time.time()),
@@ -458,11 +573,11 @@ class AuthManager(ManagedComponent):
             provider_session = self._provider_sessions.pop(token, None)
         if session is None:
             return False
-        if session.mode == "account" and provider_session:
-            try:
+        try:
+            if session.mode == "account" and provider_session:
                 self._provider.logout(provider_session.access_token, scope)
-            finally:
-                self._vault.clear()
+        finally:
+            self._vault.clear()
         self._events.publish("auth.session.ended", {"mode": session.mode}, source="auth")
         return True
 
@@ -514,13 +629,15 @@ class AuthManager(ManagedComponent):
         return self._create(provider_session, "account")
 
     def _create(self, provider_session: ProviderSession, mode: str) -> Session:
-        session = Session(secrets.token_urlsafe(32), provider_session.identity, mode, provider_session.email_verified, provider_session.pending_confirmation)
+        session = Session(secrets.token_urlsafe(32), provider_session.identity, mode, provider_session.email_verified, provider_session.pending_confirmation, provider_session.mfa_required)
         with self._lock:
             self._sessions[session.token] = session
             if mode == "account":
                 self._provider_sessions[session.token] = provider_session
         if mode == "account" and provider_session.refresh_token:
-            self._vault.save({"refresh_token": provider_session.refresh_token, "user_id": provider_session.identity.user_id, "saved_at": int(time.time())})
+            self._vault.save({"mode": "account", "refresh_token": provider_session.refresh_token, "user_id": provider_session.identity.user_id, "saved_at": int(time.time())})
+        elif mode == "guest":
+            self._vault.save({"mode": "guest", "user_id": provider_session.identity.user_id, "saved_at": int(time.time())})
         self._events.publish("auth.session.started", {"mode": mode}, source="auth")
         return session
 

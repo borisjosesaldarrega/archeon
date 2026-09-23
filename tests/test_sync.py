@@ -30,6 +30,14 @@ class OfflineSettingsSync(SupabaseSettingsSync):
 
 
 class SyncTests(unittest.TestCase):
+    def test_unconfigured_sync_is_not_misreported_as_an_offline_queue(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            sync = SupabaseSettingsSync("", "", Path(temporary))
+            envelope = {"version": 1, "updated_at": None, "settings": {}}
+            with self.assertRaisesRegex(ValueError, "sync_backend_not_configured"):
+                sync.synchronize("user-1", "jwt", envelope, envelope)
+            self.assertFalse((Path(temporary) / "sync-pending.json").exists())
+
     def test_upload_then_download_newer_account_settings(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             sync = MemorySettingsSync(Path(temporary))

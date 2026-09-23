@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="#05090C" />
+        </shape>
+    </item>
+    <item android:left="16dp" android:top="18dp" android:right="16dp" android:bottom="18dp"
+        android:drawable="@drawable/archeon_logo" />
+</layer-list>

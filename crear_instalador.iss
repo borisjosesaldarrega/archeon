@@ -1,7 +1,7 @@
 #define MyAppName "ARCHEON"
-#define MyAppVersion "10.0.0"
+#define MyAppVersion "10.0.0-rc1"
 #define MyAppPublisher "DZKNIGHT COMPANY"
-#define MyAppExeName "Archeo32n.exe"
+#define MyAppExeName "ARCHEON.exe"
 
 [Setup]
 AppId={{A3B9C5D1-E2F4-7890-ABCD-1234567890AB}
@@ -17,7 +17,7 @@ Compression=lzma2/max
 SolidCompression=yes
 PrivilegesRequired=lowest
 WizardStyle=modern
-SetupIconFile=web\logo_asitente.ico
+SetupIconFile=assets\logo_asitente.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 CloseApplications=yes
 RestartApplications=no
@@ -33,8 +33,8 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
-Source: "dist-dir\Archeo32n\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "models\vosk-model-small-es-0.42\*"; DestDir: "{app}\models\vosk-model-small-es-0.42"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "dist-release-candidate\ARCHEON\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "models\vosk-model-small-es-0.42\*"; DestDir: "{localappdata}\ARCHEON\models\vosk-model-small-es-0.42"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"

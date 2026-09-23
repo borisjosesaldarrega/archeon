@@ -6,8 +6,16 @@ import urllib.parse
 import urllib.request
 from array import array
 from collections.abc import Callable
-from threading import Condition, Event, RLock, Thread, current_thread
+from threading import Condition, Event, RLock, Thread, Timer, current_thread
 from typing import Any
+
+
+def is_online_media_path(path: str) -> bool:
+    """Treat Windows drive paths as files, never as URL schemes."""
+    parsed = urllib.parse.urlparse(path)
+    return parsed.scheme.casefold() in {"http", "https"} and not (
+        len(path) >= 3 and path[0].isalpha() and path[1] == ":" and path[2] in {"\\", "/"}
+    )
 
 
 class BufferedHttpSource:
@@ -24,6 +32,7 @@ class BufferedHttpSource:
             raise ValueError("invalid_online_media_url")
         self.url = url
         self._initial_host = parsed.hostname.casefold()
+        self._initial_path = parsed.path
         self.content_type = ""
         self._condition = Condition()
         self._buffer = bytearray()
@@ -45,7 +54,10 @@ class BufferedHttpSource:
     def _download(self) -> None:
         try:
             request = urllib.request.Request(self.url, headers={"Accept": "audio/*", "User-Agent": "ARCHEON/10"})
-            with urllib.request.urlopen(request, timeout=10) as response:
+            # A short CDN pause must not be mistaken for the end of a track.
+            # FFmpeg is preferred for authorized online providers, while this
+            # bounded fallback tolerates transient read stalls for longer.
+            with urllib.request.urlopen(request, timeout=30) as response:
                 self._response = response
                 final_url = response.geturl() if hasattr(response, "geturl") else self.url
                 final = urllib.parse.urlparse(final_url)
@@ -55,6 +67,14 @@ class BufferedHttpSource:
                     and (
                         final_host == self._initial_host
                         or (self._initial_host.endswith(".jamendo.com") and final_host.endswith(".jamendo.com"))
+                        or (
+                            self._initial_host == "api.audius.co"
+                            and self._initial_path.startswith("/v1/tracks/")
+                            and self._initial_path.endswith("/stream")
+                            and bool(final_host)
+                            and final_host not in {"localhost", "localhost.localdomain"}
+                            and not final_host.endswith(".local")
+                        )
                     )
                 )
                 if not trusted:
@@ -115,6 +135,10 @@ class BufferedHttpSource:
 class MiniAudioPlayer:
     SAMPLE_RATE = 44_100
     CHANNELS = 2
+    BUFFER_SIZE_MSEC = 80
+    # miniaudio signals source exhaustion while WASAPI still owns roughly two
+    # buffers. Closing immediately clips the tail and advances the queue early.
+    OUTPUT_DRAIN_SECONDS = BUFFER_SIZE_MSEC * 2 / 1000
 
     def __init__(self, *, output_device_id: str | None = None) -> None:
         self._output_device_id = output_device_id
@@ -122,6 +146,7 @@ class MiniAudioPlayer:
         self._stream: Any = None
         self._source: Any = None
         self._network_source: BufferedHttpSource | None = None
+        self._end_timer: Timer | None = None
         self._lock = RLock()
         self._volume = 0.7
         self._position_frames = 0
@@ -149,13 +174,16 @@ class MiniAudioPlayer:
         except (ValueError, IndexError, KeyError):
             raise RuntimeError("selected_output_device_unavailable") from None
 
-    def open(self, path: str, *, seek_ms: int = 0, on_end: Callable[[], None]) -> None:
+    def open(
+        self, path: str, *, seek_ms: int = 0, on_end: Callable[[], None],
+        on_progress: Callable[[int], None] | None = None,
+    ) -> None:
         import miniaudio
 
         self.close()
         seek_frame = max(0, round(seek_ms * self.SAMPLE_RATE / 1000))
         network_source = None
-        if urllib.parse.urlparse(path).scheme:
+        if is_online_media_path(path):
             network_source = BufferedHttpSource(path)
             formats = {
                 "audio/mpeg": miniaudio.FileFormat.MP3,
@@ -183,6 +211,9 @@ class MiniAudioPlayer:
         def progress(frames: int) -> None:
             with self._lock:
                 self._position_frames += frames
+                position_ms = round((self._seek_frame + self._position_frames) * 1000 / self.SAMPLE_RATE)
+            if on_progress is not None:
+                on_progress(position_ms)
 
         def apply_volume(frame):
             with self._lock:
@@ -197,18 +228,28 @@ class MiniAudioPlayer:
                 samples.frombytes(bytes(frame))
             return array("h", (max(-32768, min(32767, int(sample * volume))) for sample in samples))
 
+        def schedule_end() -> None:
+            with self._lock:
+                if self._device is None:
+                    return
+                timer = Timer(self.OUTPUT_DRAIN_SECONDS, on_end)
+                timer.name = "archeon-media-drain"
+                timer.daemon = True
+                self._end_timer = timer
+                timer.start()
+
         stream = miniaudio.stream_with_callbacks(
             source,
             progress_callback=progress,
             frame_process_method=apply_volume,
-            end_callback=on_end,
+            end_callback=schedule_end,
         )
         next(stream)
         device = miniaudio.PlaybackDevice(
             output_format=miniaudio.SampleFormat.SIGNED16,
             nchannels=self.CHANNELS,
             sample_rate=self.SAMPLE_RATE,
-            buffersize_msec=80,
+            buffersize_msec=self.BUFFER_SIZE_MSEC,
             device_id=self._select_device(miniaudio),
             backends=[miniaudio.Backend.WASAPI],
             app_name="ARCHEON",
@@ -241,11 +282,14 @@ class MiniAudioPlayer:
     def close(self) -> None:
         with self._lock:
             device, source, network_source = self._device, self._source, self._network_source
+            end_timer, self._end_timer = self._end_timer, None
             self._device = None
             self._stream = None
             self._source = None
             self._network_source = None
             self.path = None
+        if end_timer is not None:
+            end_timer.cancel()
         if device is not None:
             device.close()
         if source is not None:

@@ -1,0 +1,43 @@
+plugins {
+    id "com.android.application"
+}
+
+def localProperties = new Properties()
+def localPropertiesFile = rootProject.file("local.properties")
+if (localPropertiesFile.exists()) {
+    localPropertiesFile.withInputStream { localProperties.load(it) }
+}
+def devToken = (localProperties.getProperty("archeon.devToken") ?: System.getenv("ARCHEON_DEV_TOKEN") ?: "").replace("\\", "\\\\").replace('"', '\\"')
+
+android {
+    namespace "com.dzknight.archeon.mobile"
+    compileSdk 35
+    buildFeatures {
+        buildConfig true
+    }
+
+    defaultConfig {
+        applicationId "com.dzknight.archeon.mobile"
+        minSdk 26
+        targetSdk 35
+        versionCode 1
+        versionName "0.1.0-private"
+        buildConfigField "String", "ARCHEON_DEV_TOKEN", "\"${devToken}\""
+    }
+
+    buildTypes {
+        debug {
+            applicationIdSuffix ".debug"
+            versionNameSuffix "-debug"
+        }
+        release {
+            minifyEnabled true
+            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}

@@ -20,7 +20,6 @@ import psutil
 
 ROOT = Path(__file__).resolve().parents[1]
 RESULTS = ROOT / "benchmarks"
-MODEL_ROOT = ROOT / "models"
 
 
 def synthesize_input(path: Path) -> tuple[bytes, int]:
@@ -49,6 +48,7 @@ def worker(scenario: str) -> int:
     from archeon.audio import AudioManager, AudioMode, AudioSessionConfig
     from archeon.audio.wasapi import WasapiSharedCapture
     from archeon.core.events import EventBus
+    from archeon.core.paths import AppPaths
     from archeon.voice import VoicePipeline
     from archeon.voice.providers import SapiTextToSpeech, VoskSpeechToText
 
@@ -56,6 +56,7 @@ def worker(scenario: str) -> int:
     audio = AudioManager(events)
     audio.start()
     temporary: tempfile.TemporaryDirectory[str] | None = None
+    model_root = AppPaths.discover().default_model_dir
     try:
         if scenario == "listening":
             audio.register_backend("wasapi_shared", WasapiSharedCapture)
@@ -78,17 +79,17 @@ def worker(scenario: str) -> int:
             temporary = tempfile.TemporaryDirectory()
             pcm, sample_rate = synthesize_input(Path(temporary.name) / "input.wav")
             if scenario == "stt":
-                stt = VoskSpeechToText(MODEL_ROOT / "vosk-model-small-es-0.42")
+                stt = VoskSpeechToText(model_root / "vosk-model-small-es-0.42")
                 print(json.dumps({"event": "ready", "pid": os.getpid()}), flush=True)
                 text = stt.transcribe(pcm, sample_rate)
                 stt.unload()
-                result = {"provider": stt.name, "text": text, "model_released": stt._model is None}
+                result = {"provider": stt.name, "text": text, "model_released": not stt.loaded}
             elif scenario == "full_cycle":
                 pipeline = VoicePipeline(
                     events,
                     audio,
                     lambda text: {"ok": True, "message": f"Orden recibida: {text}"},
-                    MODEL_ROOT,
+                    model_root,
                     barge_in_provider=lambda: False,
                     tts_config_provider=lambda: {"volume": 20, "rate": 1},
                 )

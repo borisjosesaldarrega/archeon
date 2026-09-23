@@ -1,6 +1,7 @@
 """On-demand online search providers."""
 
 from .engine import SearchEngine
-from .providers import BraveSearchProvider, SearchResult
+from .providers import BraveSearchProvider, GoogleNewsRssProvider, SearchResult
+from .tools import SearchAgentEngine
 
-__all__ = ["BraveSearchProvider", "SearchEngine", "SearchResult"]
+__all__ = ["BraveSearchProvider", "GoogleNewsRssProvider", "SearchAgentEngine", "SearchEngine", "SearchResult"]

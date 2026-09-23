@@ -12,6 +12,7 @@ from pathlib import Path
 from threading import Event
 
 from archeon.app import ArcheonApplication
+from archeon.core.tools import ToolContext
 from archeon.ui import DesktopHost, DesktopUnavailable
 
 
@@ -43,7 +44,7 @@ class SingleInstance:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="archeon")
     parser.add_argument("--headless", action="store_true", help="Run Core and UI server without a window")
-    parser.add_argument("--browser", action="store_true", help="Open the local UI in the default browser")
+    parser.add_argument("--browser", action="store_true", help="Developer diagnostics only: open the local UI in a browser")
     parser.add_argument("--ghost", action="store_true", help="Start with the independent Ghost window")
     parser.add_argument("--auto-exit", type=float, default=None, metavar="SECONDS")
     parser.add_argument("--data-dir", type=Path, default=None)
@@ -55,6 +56,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--benchmark-radial", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--benchmark-background", choices=("image", "video"), help=argparse.SUPPRESS)
     parser.add_argument("--benchmark-stt-worker", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--benchmark-desktop-observe", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--benchmark-desktop-documents", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--benchmark-artifact-package", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--plugin-host", type=Path, default=None, help=argparse.SUPPRESS)
+    parser.add_argument("--plugin-ready-file", type=Path, default=None, help=argparse.SUPPRESS)
+    parser.add_argument("--plugin-ready-token", default="", help=argparse.SUPPRESS)
     parser.add_argument("--allow-multiple", action="store_true", help=argparse.SUPPRESS)
     return parser
 
@@ -62,6 +69,12 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     multiprocessing.freeze_support()
     args = build_parser().parse_args(argv)
+    if args.plugin_host is not None:
+        from archeon.plugins.host import main as run_plugin_host
+        return run_plugin_host(
+            args.plugin_host, ready_file=args.plugin_ready_file,
+            ready_token=args.plugin_ready_token,
+        )
     instance = SingleInstance()
     if not args.allow_multiple and not instance.acquire():
         return 0
@@ -71,6 +84,84 @@ def main(argv: list[str] | None = None) -> int:
         console_log=args.console_log,
     )
     application.start()
+    if args.benchmark_desktop_observe:
+        observed = application.handle_command("Archeon, mira la ventana y dime qué ves")
+        evidence = observed.get("data", {}).get("evidence", {})
+        (application.data_dir / "desktop-agent-smoke.json").write_text(json.dumps({
+            "ok": observed.get("ok", False),
+            "route": observed.get("data", {}).get("route"),
+            "mode": observed.get("data", {}).get("mode"),
+            "status": observed.get("data", {}).get("status"),
+            "provider": evidence.get("provider"),
+            "window_process": evidence.get("window", {}).get("process_name"),
+            "element_count": evidence.get("element_count", 0),
+            "state_hash": evidence.get("state_hash"),
+        }, ensure_ascii=False, indent=2), encoding="utf-8")
+    if args.benchmark_desktop_documents:
+        from docx import Document
+
+        fixture = application.data_dir / "packaged-document.docx"
+        document = Document()
+        document.add_heading("ARCHEON Desktop Agent", level=1)
+        document.add_paragraph("Packaged document reader verification.")
+        document.save(fixture)
+        context = ToolContext(
+            "packaged-documents", scope_permissions=frozenset({"filesystem.read"}),
+        )
+        document_result = application.tools.execute(
+            "documents.read", {"path": str(fixture)}, context=context,
+        )
+        project_result = application.tools.execute(
+            "programming.detect", {"path": str(Path.cwd())}, context=context,
+        )
+        manifests = {item.id for item in application.tools.manifests()}
+        report = {
+            "ok": bool(document_result.ok and project_result.ok),
+            "document_verified": bool(document_result.verified),
+            "document_text_found": any(
+                "Packaged document reader verification." in str(page.get("text", ""))
+                for page in document_result.data.get("pages", [])
+            ),
+            "programming_detect_verified": bool(project_result.verified),
+            "browser_registered": "browser.navigate" in manifests and "browser.read" in manifests,
+            "vision_model_downloaded": False,
+        }
+        report["ok"] = bool(report["ok"] and report["document_text_found"] and report["browser_registered"])
+        (application.data_dir / "desktop-agent-documents-smoke.json").write_text(
+            json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8",
+        )
+    if args.benchmark_artifact_package:
+        fixture = application.data_dir / "packaged-artifacts"
+        fixture.mkdir(exist_ok=True)
+        loaded_tools_before = application.tools.loaded_tool_count
+        context = ToolContext(
+            "packaged-artifacts", scope_permissions=frozenset({"filesystem.read", "filesystem.write"}),
+        )
+        docx = application.tools.execute("artifacts.create", {
+            "path": str(fixture / "report.docx"), "title": "Verification", "content": "Packaged artifact verification",
+        }, context=context)
+        xlsx = application.tools.execute("artifacts.create", {
+            "path": str(fixture / "summary.xlsx"), "sheets": [{"name": "Data", "rows": [["Item", "Value"], ["Artifacts", 4]], "chart": {"title": "Artifacts"}}],
+        }, context=context)
+        pptx = application.tools.execute("artifacts.create", {
+            "path": str(fixture / "brief.pptx"), "slides": [{"title": f"Slide {index}", "body": "Artifact verification"} for index in range(1, 7)],
+        }, context=context)
+        archive = application.tools.execute("archives.create", {
+            "destination": str(fixture / "bundle.zip"), "sources": [docx.data.get("path", ""), xlsx.data.get("path", ""), pptx.data.get("path", "")],
+        }, context=context)
+        report = {
+            "ok": all(item.ok and item.verified for item in (docx, xlsx, pptx, archive)),
+            "startup_ms": round(application.startup_ms, 3),
+            "loaded_tools_before": loaded_tools_before,
+            "loaded_tools_after": application.tools.loaded_tool_count,
+            "docx": {"verified": docx.verified, "bytes": docx.data.get("bytes")},
+            "xlsx": {"verified": xlsx.verified, "charts": xlsx.data.get("structure", {}).get("charts")},
+            "pptx": {"verified": pptx.verified, "slides": pptx.data.get("structure", {}).get("slides")},
+            "archive": {"verified": archive.verified, "members": archive.data.get("member_count"), "sha256": archive.data.get("sha256")},
+        }
+        (application.data_dir / "artifact-package-smoke.json").write_text(
+            json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8",
+        )
     if args.benchmark_stt_worker:
         started = time.perf_counter()
         provider = application.voice._stt  # Deliberately private: diagnostic-only path.
@@ -82,9 +173,9 @@ def main(argv: list[str] | None = None) -> int:
         }), encoding="utf-8")
     if args.benchmark_background:
         visual = (
-            Path(__file__).resolve().parent / "ui" / "logo_asitente.png"
+            application.resources.ui("logo_asitente.png")
             if args.benchmark_background == "image"
-            else Path(__file__).resolve().parents[2] / "assets" / "ARCHEON.mp4"
+            else application.resources.asset("ARCHEON.mp4")
         )
         application.configuration.update_settings({"appearance": {
             "background_type": args.benchmark_background,
@@ -141,9 +232,14 @@ def main(argv: list[str] | None = None) -> int:
                 action_handler=application.handle_action,
                 media_status_handler=application.media.status,
                 artwork_handler=application.media.artwork,
+                resources=application.resources,
+            )
+            start_in_ghost = bool(
+                args.ghost or application.configuration.config.ghost.enabled
+                or application.configuration.config.startup.start_in_ghost_mode
             )
             host.run(
-                initial_mode="ghost" if args.ghost else "main",
+                initial_mode="ghost" if start_in_ghost else "main",
                 auto_exit_seconds=args.auto_exit,
                 benchmark_music=args.benchmark_music,
                 benchmark_guest=args.benchmark_guest,
