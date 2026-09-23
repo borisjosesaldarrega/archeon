@@ -2,7 +2,7 @@
 
 ARCHEON es un asistente modular para Windows con procesamiento local, interfaz de escritorio, ARCHI, voz, multimedia, automatización controlada del equipo, documentos, creación de artefactos, programación, extensiones, autenticación y sincronización opcional.
 
-Este repositorio es un respaldo privado del código fuente. No contiene claves, archivos `.env`, credenciales Firebase, modelos descargados, datos del usuario, builds ni entornos virtuales.
+Este repositorio conserva el código fuente de ARCHEON Desktop y su port Android. No contiene claves, archivos `.env`, credenciales Firebase, modelos descargados, datos del usuario, builds ni entornos virtuales.
 
 ## Arquitectura
 
@@ -73,7 +73,7 @@ Modo de diagnóstico sin ventana:
 .venv-archeon\Scripts\python.exe -m pytest -q
 ```
 
-El último cierre local obtuvo 389 pruebas y 128 subpruebas aprobadas. Los flujos remotos de Supabase y correo necesitan infraestructura y cuentas controladas antes de poder declararse E2E.
+El último cierre local obtuvo 402 pruebas y 128 subpruebas aprobadas. Los flujos remotos de Supabase y correo necesitan infraestructura y cuentas controladas antes de poder declararse E2E.
 
 ## Build
 
