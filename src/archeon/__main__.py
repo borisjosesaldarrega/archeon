@@ -6,6 +6,8 @@ import argparse
 import ctypes
 import json
 import multiprocessing
+import subprocess
+import sys
 import time
 import webbrowser
 from pathlib import Path
@@ -204,6 +206,7 @@ def main(argv: list[str] | None = None) -> int:
             "event": "archeon.benchmark.launcher", "items": launcher_count,
             "scan_ms": round(launcher_ms, 3),
         }, separators=(",", ":")), flush=True)
+    restart_requested = False
     try:
         if args.headless:
             stopped = Event()
@@ -238,13 +241,13 @@ def main(argv: list[str] | None = None) -> int:
                 args.ghost or application.configuration.config.ghost.enabled
                 or application.configuration.config.startup.start_in_ghost_mode
             )
-            host.run(
+            restart_requested = host.run(
                 initial_mode="ghost" if start_in_ghost else "main",
                 auto_exit_seconds=args.auto_exit,
                 benchmark_music=args.benchmark_music,
                 benchmark_guest=args.benchmark_guest,
                 benchmark_radial=args.benchmark_radial,
-            )
+            ) == "restart"
     except KeyboardInterrupt:
         pass
     except DesktopUnavailable as error:
@@ -253,6 +256,12 @@ def main(argv: list[str] | None = None) -> int:
     finally:
         application.stop()
         instance.close()
+    if restart_requested:
+        command = [sys.executable]
+        if not getattr(sys, "frozen", False):
+            command.extend(["-m", "archeon"])
+        command.extend(sys.argv[1:] if argv is None else argv)
+        subprocess.Popen(command, close_fds=True)
     return 0
 
 

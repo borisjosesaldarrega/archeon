@@ -8,6 +8,7 @@ import unittest
 import urllib.error
 import urllib.request
 import time
+from types import SimpleNamespace
 from pathlib import Path
 from threading import Thread
 from unittest.mock import patch
@@ -18,6 +19,7 @@ from archeon.app import ArcheonApplication
 from archeon.auth import DevelopmentAuthProvider, MemorySessionVault, Session
 from archeon.auth.manager import Identity, ProviderSession
 from archeon.media.providers import MediaSearchResult
+from archeon.cloud import RemoteAction
 from tests.test_browser_agent import FakeOpener
 from archeon.ui.server import UI_ROOT
 
@@ -90,6 +92,64 @@ class ApplicationUITests(unittest.TestCase):
         self.assertTrue(payload["ok"])
         self.assertGreater(payload["data"]["logical_cpu_count"], 0)
         self.assertEqual(self.application.tools.loaded_tool_count, 1)
+
+    def test_remote_launch_refreshes_catalog_before_matching(self) -> None:
+        command = SimpleNamespace(action=RemoteAction.LAUNCH, arguments={"query": "Discord"})
+        with patch.object(
+            self.application.launcher, "refresh",
+            return_value=[{"id": "discord", "name": "Discord"}],
+        ) as refresh, patch.object(
+            self.application.launcher, "launch", return_value={"accepted_by_windows": True},
+        ) as launch:
+            result = self.application._execute_remote_command(command)
+        self.assertTrue(result["ok"])
+        refresh.assert_called_once_with()
+        launch.assert_called_once_with("discord")
+
+    def test_remote_file_send_uploads_one_exact_match_without_exposing_path(self) -> None:
+        source = Path(self.temp.name) / "Muro Colaborativo.pdf"
+        source.write_bytes(b"%PDF-test")
+        command = SimpleNamespace(
+            action=RemoteAction.MEDIA_STOP,
+            arguments={"operation": "file.send", "query": source.name, "conversation_id": "conversation-1"},
+            target_device_id="pc-bodoque",
+        )
+        identity = Identity("user-1", "test@example.com", "Test")
+        uploaded = {
+            "id": "file-1", "display_name": source.name, "mime_type": "application/pdf",
+            "byte_size": source.stat().st_size, "sha256": "a" * 64, "storage_path": "private/path",
+        }
+        with patch.object(self.application, "_find_remote_file", return_value=source), patch.object(
+            self.application.auth, "active_cloud_identity", return_value=(identity, "access-token"),
+        ), patch.object(self.application.cloud, "upload_file", return_value=uploaded) as upload:
+            result = self.application._execute_remote_command(command)
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["file"]["display_name"], source.name)
+        self.assertNotIn("storage_path", result["file"])
+        upload.assert_called_once_with(
+            "access-token", user_id="user-1", source=source,
+            uploader_device_id="pc-bodoque", conversation_id="conversation-1",
+        )
+
+    def test_remote_file_send_reports_not_found_instead_of_false_success(self) -> None:
+        command = SimpleNamespace(
+            action=RemoteAction.MEDIA_STOP,
+            arguments={"operation": "file.send", "query": "No existe.pdf"}, target_device_id="pc-bodoque",
+        )
+        with patch.object(self.application, "_find_remote_file", side_effect=ValueError("remote_file_not_found")):
+            result = self.application._execute_remote_command(command)
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"], "remote_file_not_found")
+
+    def test_remote_file_search_checks_top_level_download_before_recursive_limit(self) -> None:
+        home = Path(self.temp.name) / "home"
+        downloads = home / "Downloads"
+        downloads.mkdir(parents=True)
+        expected = downloads / "Muro Colaborativo.pdf"
+        expected.write_bytes(b"%PDF-test")
+        with patch("archeon.app.Path.home", return_value=home):
+            found = self.application._find_remote_file(expected.name)
+        self.assertEqual(found, expected.resolve())
 
     def test_document_command_reads_exact_second_pdf_page_with_verified_context(self) -> None:
         fixture = Path(__file__).parent / "fixtures" / "document.pdf"
@@ -908,6 +968,7 @@ class ApplicationUITests(unittest.TestCase):
         self.assertIn('id="mobile-conversations"', mobile_html)
         self.assertIn('id="mobile-files"', mobile_html)
         self.assertIn('id="mobile-devices"', mobile_html)
+        self.assertIn('class="mobile-media-player"', mobile_html)
         self.assertIn('id="mobile-boot"', mobile_html)
         self.assertIn('id="mobile-permissions-panel"', mobile_html)
         self.assertIn('id="mobile-browser-permissions"', mobile_html)
@@ -928,6 +989,8 @@ class ApplicationUITests(unittest.TestCase):
         self.assertIn('"cloud.conversations.list"', mobile_js)
         self.assertIn('"cloud.files.list"', mobile_js)
         self.assertIn('"cloud.devices.list"', mobile_js)
+        self.assertIn('"cloud.devices.rename"', mobile_js)
+        self.assertIn('message-speaker', mobile_js)
         self.assertIn('"permissions.list"', mobile_js)
         self.assertIn('"permissions.update"', mobile_js)
         self.assertIn('navigator.mediaDevices.getUserMedia', mobile_js)
@@ -949,8 +1012,25 @@ class ApplicationUITests(unittest.TestCase):
         self.assertIn('const ratio=backgroundFrame.clientWidth/backgroundFrame.clientHeight', mobile_js)
         self.assertIn('if(command){toast(`${spokenName} activado.`);await runSpokenCommand(command);}', mobile_js)
         self.assertIn('if(native.ensureAudibleVolume)native.ensureAudibleVolume()', mobile_js)
+        self.assertIn('native.saveCloudFile(file.display_name,file.mime_type,file.content_base64,preview)', mobile_js)
+        self.assertIn('id="mobile-mfa-status"', mobile_html)
+        self.assertIn('/api/auth/mfa-enroll', mobile_js)
+        self.assertIn('/api/auth/mfa-verify', mobile_js)
+        self.assertIn('/api/auth/mfa-unenroll', mobile_js)
+        self.assertIn('confirmDeletion("Borrar archivo"', mobile_js)
+        self.assertNotIn('confirm(`¿Borrar', mobile_js)
         for locale in ("es", "en", "pt", "fr", "de", "it", "zh", "ja", "ko", "ru", "ar", "hi"):
             self.assertIn(f'{locale}:{{appearance:', mobile_js)
+
+    def test_desktop_cloud_preview_stays_inside_archeon_with_interactive_pdf_controls(self) -> None:
+        html = (UI_ROOT / "index.html").read_text(encoding="utf-8")
+        javascript = (UI_ROOT / "app.js").read_text(encoding="utf-8")
+        stylesheet = (UI_ROOT / "polish.css").read_text(encoding="utf-8")
+        self.assertIn('id="cloud-preview-dialog"', html)
+        self.assertIn('id="cloud-preview-frame"', html)
+        self.assertIn('cloudPreviewFrame.src=url', javascript)
+        self.assertIn('URL.revokeObjectURL(cloudPreviewUrl)', javascript)
+        self.assertIn('.cloud-preview-dialog iframe', stylesheet)
         self.assertIn('id="cloud-open"', html)
         self.assertIn('id="cloud-dialog"', html)
         self.assertIn('"cloud.files.list"', javascript)

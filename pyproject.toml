@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-desktop = ["pywebview==6.2.1"]
+desktop = ["pywebview==6.2.1", "pystray==0.19.5"]
 benchmark = ["psutil==7.2.2"]
 voice = [
   "sounddevice==0.5.6",

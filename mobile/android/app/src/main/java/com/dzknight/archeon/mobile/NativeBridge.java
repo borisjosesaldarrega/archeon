@@ -15,10 +15,12 @@ import org.json.JSONObject;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.UUID;
 
 final class NativeBridge {
     static final int PERMISSION_REQUEST = 701;
     private static final String SESSION = "session_token";
+    private static final String REFRESH = "refresh_token";
     private final MainActivity activity;
     private final SecureStore secureStore;
     private String pendingPermission = "";
@@ -29,12 +31,69 @@ final class NativeBridge {
     }
 
     @JavascriptInterface public String platform() { return "android"; }
+    @JavascriptInterface public String deviceName() {
+        String custom = secureStore.get("device_name");
+        if (custom != null && !custom.isBlank()) return custom;
+        String maker = Build.MANUFACTURER == null ? "Android" : Build.MANUFACTURER.trim();
+        String model = Build.MODEL == null ? "teléfono" : Build.MODEL.trim();
+        if (model.toLowerCase(java.util.Locale.ROOT).startsWith(maker.toLowerCase(java.util.Locale.ROOT))) return model;
+        return (maker + " " + model).trim();
+    }
+    @JavascriptInterface public void setDeviceName(String value) {
+        if (value == null) return;
+        String clean = value.trim().replaceAll("[\\r\\n\\t]", " ");
+        if (clean.isBlank() || clean.length() > 60) return;
+        secureStore.put("device_name", clean);
+    }
+    @JavascriptInterface public String apiBase() { return BuildConfig.ARCHEON_API_BASE_URL; }
+    @JavascriptInterface public String publishableKey() { return BuildConfig.ARCHEON_SUPABASE_PUBLISHABLE_KEY; }
+    @JavascriptInterface public String installationId() {
+        String value = secureStore.get("installation_id");
+        if (value == null || value.length() < 16) {
+            value = UUID.randomUUID().toString();
+            secureStore.put("installation_id", value);
+        }
+        return value;
+    }
     @JavascriptInterface public String getSessionToken() { return secureStore.get(SESSION); }
     @JavascriptInterface public void setSessionToken(String value) {
         if (value == null || value.length() < 16 || value.length() > 8192) return;
         secureStore.put(SESSION, value);
     }
     @JavascriptInterface public void clearSessionToken() { secureStore.remove(SESSION); }
+    @JavascriptInterface public String getRefreshToken() { return secureStore.get(REFRESH); }
+    @JavascriptInterface public void setRefreshToken(String value) {
+        if (value == null || value.length() < 8 || value.length() > 8192) return;
+        secureStore.put(REFRESH, value);
+    }
+    @JavascriptInterface public void clearRefreshToken() { secureStore.remove(REFRESH); }
+    @JavascriptInterface public boolean backgroundModeEnabled() {
+        return "1".equals(secureStore.get("background_mode"));
+    }
+    @JavascriptInterface public void setBackgroundModeEnabled(boolean enabled) {
+        secureStore.put("background_mode", enabled ? "1" : "0");
+        activity.setBackgroundModeEnabled(enabled);
+    }
+    @JavascriptInterface public void setMediaPlaybackActive(boolean active) {
+        activity.setMediaPlaybackActive(active);
+    }
+    @JavascriptInterface public void playBackgroundAudio(String url, String title, int positionMs) {
+        if (url == null || url.isBlank()) return;
+        Intent service = new Intent(activity, ArcheonBackgroundService.class)
+            .setAction(ArcheonBackgroundService.ACTION_PLAY_AUDIO)
+            .putExtra(ArcheonBackgroundService.EXTRA_URL, url)
+            .putExtra(ArcheonBackgroundService.EXTRA_TITLE, title == null ? "" : title)
+            .putExtra(ArcheonBackgroundService.EXTRA_POSITION_MS, Math.max(0, positionMs));
+        activity.startForegroundService(service);
+    }
+    @JavascriptInterface public String backgroundAudioState() {
+        return ArcheonBackgroundService.audioState();
+    }
+    @JavascriptInterface public void stopBackgroundAudio() {
+        Intent service = new Intent(activity, ArcheonBackgroundService.class)
+            .setAction(ArcheonBackgroundService.ACTION_STOP_AUDIO);
+        activity.startForegroundService(service);
+    }
 
     @JavascriptInterface public String permissionState(String permission) {
         String[] manifest = manifestPermissions(permission);
@@ -90,6 +149,39 @@ final class NativeBridge {
 
     @JavascriptInterface public boolean ensureAudibleVolume() {
         return activity.ensureAudibleMediaVolume();
+    }
+
+    @JavascriptInterface public boolean openApplication(String query) {
+        if (query == null || query.isBlank()) return false;
+        String key = query.trim().toLowerCase(java.util.Locale.ROOT);
+        Map<String, String> known = Map.ofEntries(
+            Map.entry("discord", "com.discord"),
+            Map.entry("chrome", "com.android.chrome"),
+            Map.entry("opera", "com.opera.max.oem"),
+            Map.entry("navegador", "com.android.chrome"),
+            Map.entry("internet", "com.sec.android.app.sbrowser"),
+            Map.entry("youtube", "com.google.android.youtube"),
+            Map.entry("spotify", "com.spotify.music"),
+            Map.entry("whatsapp", "com.whatsapp"),
+            Map.entry("gmail", "com.google.android.gm"),
+            Map.entry("maps", "com.google.android.apps.maps")
+        );
+        String packageName = known.getOrDefault(key, key.contains(".") ? key : "");
+        if (packageName.isBlank()) return false;
+        Intent launch = activity.getPackageManager().getLaunchIntentForPackage(packageName);
+        if (launch == null) return false;
+        launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        activity.runOnUiThread(() -> activity.startActivity(launch));
+        return true;
+    }
+
+    @JavascriptInterface public boolean saveCloudFile(String name, String mimeType, String contentBase64, boolean preview) {
+        if (name == null || name.isBlank() || contentBase64 == null || contentBase64.isBlank()) return false;
+        if (contentBase64.length() > 24 * 1024 * 1024) return false;
+        String clean = name.trim().replaceAll("[\\\\/\\r\\n\\t]", "_").replace('\u0000', '_');
+        if (clean.isBlank() || clean.length() > 255) return false;
+        activity.handleCloudFile(clean, mimeType == null ? "application/octet-stream" : mimeType, contentBase64, preview);
+        return true;
     }
 
     String pendingPermission() { return pendingPermission; }

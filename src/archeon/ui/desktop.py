@@ -40,6 +40,7 @@ class DesktopHost:
         self._resources = resources
         self._stopping = ThreadEvent()
         self._bridge: Thread | None = None
+        self._tray: Any | None = None
 
     def run(
         self,
@@ -49,7 +50,7 @@ class DesktopHost:
         benchmark_music: bool = False,
         benchmark_guest: bool = False,
         benchmark_radial: bool = False,
-    ) -> None:
+    ) -> str | None:
         if initial_mode == "ghost":
             from archeon.ui.ghost_native import NativeGhostHost
 
@@ -94,8 +95,8 @@ class DesktopHost:
                 # interface. Persist it before creating WebView so a later
                 # launch does not incorrectly reopen Ghost/radial.
                 self._action_handler("window.main", {})
-                self.run(initial_mode=outcome, auto_exit_seconds=auto_exit_seconds)
-            return
+                return self.run(initial_mode=outcome, auto_exit_seconds=auto_exit_seconds)
+            return None
         try:
             import webview
         except ImportError as error:
@@ -105,11 +106,17 @@ class DesktopHost:
 
         windows: dict[str, Any] = {}
         transition_to_ghost = ThreadEvent()
+        restart_requested = ThreadEvent()
 
         def destroy_all(*_: object) -> None:
             if self._stopping.is_set():
                 return
             self._stopping.set()
+            if self._tray is not None:
+                try:
+                    self._tray.stop()
+                except Exception:
+                    pass
             for window in tuple(windows.values()):
                 try:
                     window.destroy()
@@ -161,6 +168,16 @@ class DesktopHost:
                         if ghost is not None:
                             ghost.hide()
                         main.show()
+                    elif event.type == "ui.window.settings":
+                        main = make_main()
+                        main.show()
+                        try:
+                            main.evaluate_js("document.getElementById('settings-open').click()")
+                        except Exception:
+                            pass
+                    elif event.type == "ui.window.restart":
+                        restart_requested.set()
+                        destroy_all()
                     elif event.type == "ui.window.exit":
                         destroy_all()
             except RuntimeError:
@@ -174,6 +191,23 @@ class DesktopHost:
             nonlocal timer
             self._bridge = Thread(target=bridge, name="archeon-window-bridge", daemon=False)
             self._bridge.start()
+            try:
+                import pystray
+                from PIL import Image
+
+                icon_path = self._resources.ui("logo_asitente.png") if self._resources else None
+                icon_image = Image.open(icon_path).convert("RGBA") if icon_path and icon_path.is_file() else Image.new("RGBA", (64, 64), "#00dff5")
+                publish = lambda name: self._events.publish(name, source="system-tray")
+                self._tray = pystray.Icon("ARCHEON", icon_image, "ARCHEON", pystray.Menu(
+                    pystray.MenuItem("Abrir ARCHEON", lambda *_: publish("ui.window.main"), default=True),
+                    pystray.MenuItem("Ajustes", lambda *_: publish("ui.window.settings")),
+                    pystray.MenuItem("Reiniciar", lambda *_: publish("ui.window.restart")),
+                    pystray.Menu.SEPARATOR,
+                    pystray.MenuItem("Cerrar ARCHEON", lambda *_: publish("ui.window.exit")),
+                ))
+                self._tray.run_detached()
+            except (ImportError, OSError, RuntimeError):
+                self._tray = None
             if auto_exit_seconds is not None:
                 timer = Timer(auto_exit_seconds, destroy_all)
                 timer.daemon = True
@@ -200,4 +234,5 @@ class DesktopHost:
                     raise RuntimeError("window bridge thread did not stop")
         if transition_to_ghost.is_set():
             self._stopping.clear()
-            self.run(initial_mode="ghost", auto_exit_seconds=auto_exit_seconds)
+            return self.run(initial_mode="ghost", auto_exit_seconds=auto_exit_seconds)
+        return "restart" if restart_requested.is_set() else None

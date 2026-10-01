@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="viewport" content="width=device-width,initial-scale=1,minimum-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
   <meta name="theme-color" content="#071014">
   <title>ARCHEON Mobile</title>
   <link rel="stylesheet" href="/mobile.css">
@@ -88,10 +88,10 @@
         <section class="settings-card"><h3 data-mobile-ui="general">General</h3><label><span data-i18n="settings.interface_language">Idioma</span><select id="mobile-language-app" class="mobile-language" aria-label="Idioma"></select></label></section>
         <section id="mobile-appearance" class="settings-card drawer-appearance"><h3 data-mobile-ui="appearance">Apariencia</h3><label><span data-mobile-ui="color">Color</span><input id="mobile-accent" type="color" value="#00e8ff"></label><div><label class="appearance-file"><span data-mobile-ui="chooseBackground">Elegir fondo</span><input id="mobile-background-file" type="file" accept="image/*" hidden></label><button id="mobile-background-adjust" type="button" data-mobile-appearance="title">Ajustar fondo</button><button id="mobile-background-clear" type="button" data-mobile-ui="clearBackground">Quitar fondo</button></div></section>
         <section class="settings-card"><h3>ARCHI</h3><label><span data-mobile-ui="intelligence">Nivel de inteligencia</span><select id="mobile-intelligence"><option value="low" data-mobile-ui="intelligenceLow">Baja</option><option value="medium" data-mobile-ui="intelligenceMedium">Media</option><option value="high" data-mobile-ui="intelligenceHigh">Alta</option></select></label><p id="mobile-intelligence-help" class="settings-help"></p></section>
-        <section class="settings-card"><h3 data-mobile-ui="voiceAudio">Voz y audio</h3><p data-mobile-ui="voiceAudioHelp">Configura dictado, conversación por voz y permisos del micrófono.</p><label><span>Nombre de activación</span><input id="mobile-wake-name" maxlength="24" value="ARCHI" autocomplete="off"></label><label class="mobile-check"><input id="mobile-wake-enabled" type="checkbox"><span>Activar por voz mientras ARCHEON está abierto</span></label><p class="settings-help">Por privacidad y batería, la escucha se detiene al salir de la app. Puedes decir el nombre elegido y después tu orden.</p><button id="mobile-settings-permissions" type="button" data-mobile-ui="managePermissions">Administrar permisos</button></section>
+        <section class="settings-card"><h3 data-mobile-ui="voiceAudio">Voz y audio</h3><p data-mobile-ui="voiceAudioHelp">Configura dictado, conversación por voz y permisos del micrófono.</p><label><span>Nombre de activación</span><input id="mobile-wake-name" maxlength="24" value="ARCHI" autocomplete="off"></label><label class="mobile-check"><input id="mobile-wake-enabled" type="checkbox"><span>Activación por voz</span></label><label class="mobile-check"><input id="mobile-background-enabled" type="checkbox"><span>Continuar música y activación por voz al salir de la app</span></label><label class="mobile-check"><input id="mobile-dj-enabled" type="checkbox"><span>Modo DJ · continuar con música relacionada</span></label><p class="settings-help">El modo en segundo plano muestra una notificación permanente mientras está activo y puede consumir más batería.</p><button id="mobile-settings-permissions" type="button" data-mobile-ui="managePermissions">Administrar permisos</button></section>
         <section class="settings-card" data-account-only><h3>Cloud · Dispositivos · Archivos</h3><p>Sincroniza contenido y acciones con tus dispositivos ARCHEON.</p><div class="settings-actions"><button type="button" data-settings-panel-target="files">Cloud</button><button type="button" data-settings-panel-target="devices">Dispositivos</button></div></section>
         <section class="settings-card"><h3 data-mobile-ui="privacyAccess">Privacidad · Permisos · Accesibilidad</h3><p data-mobile-ui="privacyHelp">Los permisos se solicitan solo cuando usas una función.</p><button id="mobile-settings-permissions-secondary" type="button" data-mobile-ui="reviewPermissions">Revisar permisos</button></section>
-        <section class="settings-card account-card"><h3 data-mobile-ui="account">Cuenta</h3><div data-guest-only><p data-mobile-copy="accountBenefits">Activa ARCHEON Cloud, sincronización y dispositivos.</p><div class="settings-actions"><button id="mobile-login-cta" type="button" data-i18n="access.login">Iniciar sesión</button><button id="mobile-register-cta" type="button" data-i18n="access.register">Crear cuenta</button></div></div><div data-account-only><strong id="mobile-account-name">Cuenta ARCHEON</strong><small id="mobile-account-email"></small><small id="mobile-account-sync">Sincronización activa</small></div><button id="mobile-logout" class="logout" type="button">Cerrar sesión</button></section>
+        <section class="settings-card account-card"><h3 data-mobile-ui="account">Cuenta</h3><div data-guest-only><p data-mobile-copy="accountBenefits">Activa ARCHEON Cloud, sincronización y dispositivos.</p><div class="settings-actions"><button id="mobile-login-cta" type="button" data-i18n="access.login">Iniciar sesión</button><button id="mobile-register-cta" type="button" data-i18n="access.register">Crear cuenta</button></div></div><div data-account-only><strong id="mobile-account-name">Cuenta ARCHEON</strong><small id="mobile-account-email"></small><small id="mobile-account-sync">Sincronización activa</small><div class="mobile-mfa-settings"><strong>Autenticación de dos factores · 2FA</strong><small id="mobile-mfa-status">Comprobando seguridad…</small><button id="mobile-mfa-enroll" type="button">Configurar aplicación autenticadora</button><div id="mobile-mfa-setup" hidden><img id="mobile-mfa-qr" alt="Código QR para configurar 2FA"><small>También puedes copiar esta clave:</small><code id="mobile-mfa-secret"></code><label><span>Código de 6 dígitos</span><input id="mobile-mfa-enroll-code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6"></label><button id="mobile-mfa-confirm" type="button">Activar 2FA</button></div><button id="mobile-mfa-remove" class="logout" type="button" hidden>Desactivar 2FA</button></div></div><button id="mobile-logout" class="logout" type="button">Cerrar sesión</button></section>
         <section class="settings-card"><h3 data-mobile-ui="about">Acerca de</h3><p>ARCHEON Mobile · DZKnight Company</p><button id="mobile-repeat-tour" type="button">Repetir recorrido</button></section>
       </div>
     </dialog>
@@ -124,13 +124,23 @@
       <button id="mobile-mascot-error-close" type="button">Entendido</button>
     </dialog>
 
+    <dialog id="mobile-delete-confirm" class="mobile-confirm-dialog" aria-labelledby="mobile-delete-title">
+      <p class="eyebrow">ARCHEON</p>
+      <h2 id="mobile-delete-title">Confirmar eliminación</h2>
+      <p id="mobile-delete-message">Esta conversación dejará de aparecer en tu historial.</p>
+      <div class="mobile-confirm-actions">
+        <button id="mobile-delete-cancel" type="button">Cancelar</button>
+        <button id="mobile-delete-accept" class="danger" type="button">Eliminar</button>
+      </div>
+    </dialog>
+
     <main>
       <section id="mobile-chat-panel" class="panel active">
         <div id="mobile-messages" class="messages" aria-live="polite"></div>
         <section id="mobile-media-player" class="mobile-media-player" hidden aria-label="Reproductor en este teléfono">
           <header><div><small>REPRODUCIENDO EN ESTE TELÉFONO</small><strong id="mobile-media-title">—</strong></div><button id="mobile-media-close" type="button" aria-label="Detener y cerrar">×</button></header>
           <audio id="mobile-media-audio" controls preload="auto"></audio>
-          <iframe id="mobile-media-frame" title="Reproductor multimedia" allow="autoplay; encrypted-media; picture-in-picture" referrerpolicy="strict-origin-when-cross-origin" hidden></iframe>
+          <div id="mobile-media-frame" class="mobile-media-frame" hidden><div id="mobile-youtube-player"></div></div>
         </section>
         <div id="mobile-attachment-previews" class="mobile-attachment-previews" aria-live="polite"></div>
         <form id="mobile-command" class="composer">

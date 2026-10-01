@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import base64
+import json
 import os
 import re
 import time
 from dataclasses import replace
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from difflib import SequenceMatcher
 from pathlib import Path
-from threading import RLock
+from threading import Event, RLock, Thread
 from typing import Any
 from uuid import uuid4
 
@@ -34,7 +35,7 @@ from archeon.desktop import DesktopAgentEngine, WindowsDesktopObserver
 from archeon.documents import DocumentAgentEngine, DocumentReader, DocumentResolver
 from archeon.programming import ProgrammingAgentEngine, ProjectContext, ProjectContextStore
 from archeon.browser import BrowserAgentEngine
-from archeon.cloud import ArcheonCloudClient
+from archeon.cloud import ArcheonCloudClient, RemoteAction, RemoteCommand, RemoteIntentParser
 from archeon.artifacts import (
     ArtifactEngine, DisabledImageProvider, ImageRequest,
     StableDiffusionCppImageProvider,
@@ -51,7 +52,7 @@ from archeon.learning import LearningScope, LearningSource, OperationalLearningE
 from archeon.plugins import PluginManager, TrustedPublisherVerifier
 from archeon.system import DeviceSystemEngine, configure_launch_at_login
 from archeon.sync import SupabaseSettingsSync
-from archeon.updates import UpdateManager
+from archeon.updates import GitHubReleaseProvider, UpdateManager
 from archeon.ui.server import UIServer
 from archeon.voice import SpeakerVerificationManager, VoicePipeline
 from archeon.voice import SpeechContextResolver
@@ -101,6 +102,13 @@ class ArcheonApplication:
         self.writing_style = WritingStyleEngine()
         supabase_url = os.environ.get("ARCHEON_SUPABASE_URL", "").strip()
         supabase_key = os.environ.get("ARCHEON_SUPABASE_PUBLISHABLE_KEY", "").strip()
+        if not (supabase_url and supabase_key):
+            try:
+                public_cloud = json.loads(self.resources.path("archeon-public-cloud.json").read_text(encoding="utf-8"))
+            except (OSError, ValueError, json.JSONDecodeError):
+                public_cloud = {}
+            supabase_url = str(public_cloud.get("ARCHEON_SUPABASE_URL") or "").strip()
+            supabase_key = str(public_cloud.get("ARCHEON_SUPABASE_PUBLISHABLE_KEY") or "").strip()
         account_provider = (
             SupabaseAuthProvider(supabase_url, supabase_key)
             if supabase_url and supabase_key else UnconfiguredAuthProvider()
@@ -135,6 +143,10 @@ class ArcheonApplication:
         self.speech_context = SpeechContextResolver()
         self.settings_sync = SupabaseSettingsSync(supabase_url, supabase_key, self.data_dir)
         self.cloud = ArcheonCloudClient(supabase_url, supabase_key)
+        self._cloud_device = self._load_cloud_device_identity()
+        self._remote_intents = RemoteIntentParser()
+        self._remote_stop = Event()
+        self._remote_thread: Thread | None = None
         plugin_trust = TrustedPublisherVerifier(self.paths.secure_dir / "trusted-publishers")
         self.plugins = PluginManager(
             self.events, self.paths.plugins_dir,
@@ -144,7 +156,7 @@ class ArcheonApplication:
                 for permission in required
             ),
         )
-        self.updates = UpdateManager("10.0.0.dev0")
+        self.updates = UpdateManager("10.0.0rc1", GitHubReleaseProvider("borisjosesaldarrega/archeon"))
         self.system = DeviceSystemEngine(self.tools)
         self.desktop_agent = DesktopAgentEngine(self.tools)
         self.document_agent = DocumentAgentEngine(self.tools)
@@ -278,6 +290,10 @@ class ArcheonApplication:
             self.lifecycle.start()
             self._configure_local_ai()
             self._started = True
+            if self.cloud.configured:
+                self._remote_stop.clear()
+                self._remote_thread = Thread(target=self._remote_command_loop, name="archeon-remote", daemon=True)
+                self._remote_thread.start()
             self.startup_ms = (time.perf_counter() - started) * 1000
             self.events.publish(
                 "app.started",
@@ -286,11 +302,218 @@ class ArcheonApplication:
             )
             log_event(self.logger, "app.started", startup_ms=round(self.startup_ms, 3))
 
+    def _load_cloud_device_identity(self) -> dict[str, str]:
+        path = self.paths.secure_dir / "cloud-device.json"
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, json.JSONDecodeError):
+            value = {}
+        installation_id = str(value.get("installation_id") or "")
+        public_key = str(value.get("public_key") or "")
+        display_name = str(value.get("display_name") or "").strip()[:60]
+        if len(installation_id) < 16 or len(public_key) < 32:
+            installation_id = str(uuid4())
+            public_key = f"archeon-windows-{uuid4().hex}-{uuid4().hex}"
+            path.parent.mkdir(parents=True, exist_ok=True)
+        if not display_name:
+            display_name = f"ARCHEON PC · {os.environ.get('COMPUTERNAME', 'Windows')}"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"installation_id": installation_id, "public_key": public_key, "display_name": display_name}), encoding="utf-8")
+        return {"installation_id": installation_id, "public_key": public_key, "display_name": display_name}
+
+    def _register_current_cloud_device(self, access_token: str, user_id: str) -> dict[str, Any]:
+        registered = self.cloud.register_device(
+            access_token, user_id=user_id,
+            installation_id=self._cloud_device["installation_id"],
+            display_name=self._cloud_device["display_name"],
+            platform="windows", public_key=self._cloud_device["public_key"],
+            capabilities=["media.play", "launcher.open", "cloud.files"],
+            remote_control_enabled=True, file_access_enabled=True,
+        )
+        cloud_name = str(registered.get("display_name") or "").strip()[:60]
+        if cloud_name and cloud_name != self._cloud_device["display_name"]:
+            self._cloud_device["display_name"] = cloud_name
+            (self.paths.secure_dir / "cloud-device.json").write_text(
+                json.dumps(self._cloud_device), encoding="utf-8",
+            )
+        return registered
+
+    def _queue_remote_mobile_command(self, text: str) -> dict[str, Any] | None:
+        file_transfer = re.fullmatch(
+            r"\s*(?:env[ií]a|pasa|manda|transfiere)\s+(?:el\s+)?archivo\s+(.+?)\s+(?:a|al|para)\s+(?:mi\s+)?(?:celular|m[oó]vil|tel[eé]fono|android)\s*[.!]?\s*",
+            text, flags=re.IGNORECASE,
+        )
+        if file_transfer:
+            credentials = self.auth.active_cloud_identity()
+            if credentials is None:
+                return {"ok": False, "message": "Inicia sesión para enviar archivos a tu celular.", "data": {"route": "remote_file", "error": "account_session_required"}}
+            identity, access_token = credentials
+            requested = file_transfer.group(1).strip().strip('"\'')
+            try:
+                source_path = Path(requested).expanduser().resolve(strict=True)
+                if not source_path.is_file():
+                    raise ValueError("cloud_file_not_found")
+                source = self._register_current_cloud_device(access_token, identity.user_id)
+                uploaded = self.cloud.upload_file(access_token, user_id=identity.user_id, source=source_path, uploader_device_id=str(source["id"]))
+            except (OSError, ValueError):
+                return {"ok": False, "message": "No encontré ese archivo exacto en la PC. Indica su ruta completa.", "data": {"route": "remote_file", "error": "cloud_file_not_found"}}
+            return {"ok": True, "message": f"Envié {uploaded.get('display_name', source_path.name)} a ARCHEON Cloud; ya está disponible en tu celular.", "data": {"route": "remote_file", "file_id": uploaded.get("id")}}
+        intent = self._remote_intents.parse(text)
+        named_shape = re.fullmatch(
+            r"\s*(?:(?:abre|[aá]breme|habre|inicia|ejecuta|reproduce|reprodus|pon|ponme)\s+.+?\s+en\s+[\w .·-]{2,60}|(?:en\s+)?[\w .·-]{2,60}\s+(?:abre|[aá]breme|habre|inicia|ejecuta|reproduce|reprodus|pon|ponme)\s+.+)\s*[.!]?\s*",
+            text, flags=re.IGNORECASE,
+        )
+        if intent is None and named_shape is None:
+            return None
+        credentials = self.auth.active_cloud_identity()
+        if credentials is None:
+            return {"ok": False, "message": "Inicia sesión para enviar órdenes a tu celular.", "data": {"route": "remote_command", "error": "account_session_required"}}
+        identity, access_token = credentials
+        source = self._register_current_cloud_device(access_token, identity.user_id)
+        devices = self.cloud.list_devices(access_token, identity.user_id)
+        if intent is None:
+            intent = self._remote_intents.parse(
+                text,
+                {str(item.get("display_name") or ""): str(item.get("platform") or "") for item in devices},
+            )
+        if intent is None or intent.target_kind != "mobile":
+            return None
+        target = next((
+            item for item in devices
+            if item.get("platform") == "android"
+            and item.get("id") != source.get("id")
+            and (not intent.target_name or str(item.get("display_name")) == intent.target_name)
+        ), None)
+        if target is None:
+            return {"ok": False, "message": "No encontré un celular ARCHEON activo en esta cuenta.", "data": {"route": "remote_command", "error": "target_device_not_found"}}
+        now = datetime.now(UTC)
+        command = RemoteCommand(
+            id=str(uuid4()), user_id=identity.user_id,
+            source_device_id=str(source["id"]), target_device_id=str(target["id"]),
+            action=intent.action, arguments=intent.arguments,
+            risk="high" if intent.confirmation_required else "standard",
+            idempotency_key=str(uuid4()), nonce=uuid4().hex,
+            expires_at=(now + timedelta(minutes=2)).isoformat(),
+        ).sign(self._cloud_device["public_key"].encode("utf-8"))
+        queued = self.cloud.queue_command(access_token, command)
+        label = "la reproducción" if intent.action == RemoteAction.MEDIA_PLAY else "la apertura de la aplicación"
+        return {"ok": True, "message": f"Envié {label} a {target.get('display_name', 'tu celular')}.", "data": {"route": "remote_command", "command_id": queued.get("id"), "state": queued.get("state")}}
+
+    def _execute_remote_command(self, command: RemoteCommand) -> dict[str, Any]:
+        if command.action == RemoteAction.LAUNCH:
+            query = self.launcher.normalize(str(command.arguments.get("query") or ""))
+            # Remote commands can arrive before the launcher panel has ever
+            # been opened, so populate the bounded catalog on first use.
+            matches = self.launcher.refresh()
+            selected = next((item for item in matches if self.launcher.normalize(str(item.get("name") or "")) == query), None)
+            if selected is None:
+                selected = next((item for item in matches if query and query in self.launcher.normalize(str(item.get("name") or ""))), None)
+            if selected is None:
+                return {"ok": False, "error": "launcher_item_not_found"}
+            return {"ok": True, "launched": self.launcher.launch(str(selected["id"]))}
+        if command.action == RemoteAction.MEDIA_PLAY:
+            query = str(command.arguments.get("query") or "").strip()
+            if not query:
+                return {"ok": False, "error": "media_query_required"}
+            result = self.handle_command(f"reproduce {query}")
+            return {"ok": bool(result.get("ok")), "message": result.get("message"), "route": result.get("data", {}).get("route")}
+        if command.action == RemoteAction.MEDIA_STOP and command.arguments.get("operation") == "file.send":
+            query = str(command.arguments.get("query") or "").strip()
+            if not query or Path(query).name != query or len(query) > 255:
+                return {"ok": False, "error": "remote_file_name_required"}
+            try:
+                source = self._find_remote_file(query)
+            except ValueError as error:
+                return {"ok": False, "error": str(error)}
+            credentials = self.auth.active_cloud_identity()
+            if credentials is None:
+                return {"ok": False, "error": "account_session_required"}
+            identity, access_token = credentials
+            try:
+                uploaded = self.cloud.upload_file(
+                    access_token,
+                    user_id=identity.user_id,
+                    source=source,
+                    uploader_device_id=command.target_device_id,
+                    conversation_id=str(command.arguments.get("conversation_id") or "") or None,
+                )
+            except (OSError, ValueError):
+                return {"ok": False, "error": "remote_file_upload_failed"}
+            return {
+                "ok": True,
+                "file": {
+                    key: uploaded.get(key)
+                    for key in ("id", "display_name", "mime_type", "byte_size", "sha256")
+                },
+            }
+        return {"ok": False, "error": "remote_action_not_supported"}
+
+    @staticmethod
+    def _find_remote_file(requested_name: str) -> Path:
+        """Find one exact user document without exposing arbitrary filesystem paths."""
+        wanted = " ".join(requested_name.casefold().split())
+        wanted_stem = " ".join(Path(requested_name).stem.casefold().split())
+        home = Path.home()
+        roots = [home / "Desktop", home / "Documents", home / "Downloads", home / "OneDrive"]
+        resolved_roots = list(dict.fromkeys(path.resolve() for path in roots if path.is_dir()))
+        direct = [
+            candidate.resolve()
+            for root in resolved_roots
+            for candidate in (root / requested_name,)
+            if candidate.is_file() and not candidate.is_symlink()
+        ]
+        direct = list(dict.fromkeys(direct))
+        if len(direct) == 1:
+            return direct[0]
+        if len(direct) > 1:
+            raise ValueError("remote_file_ambiguous")
+        matches: list[Path] = []
+        inspected = 0
+        for root in resolved_roots:
+            for directory, folders, files in os.walk(root, followlinks=False):
+                folders[:] = [name for name in folders if not name.startswith(".")]
+                for name in files:
+                    inspected += 1
+                    if inspected > 50_000:
+                        raise ValueError("remote_file_search_limit")
+                    normalized = " ".join(name.casefold().split())
+                    normalized_stem = " ".join(Path(name).stem.casefold().split())
+                    if normalized == wanted or (Path(requested_name).suffix == "" and normalized_stem == wanted_stem):
+                        candidate = (Path(directory) / name).resolve()
+                        if candidate.is_file() and not candidate.is_symlink():
+                            matches.append(candidate)
+        unique = list(dict.fromkeys(matches))
+        if not unique:
+            raise ValueError("remote_file_not_found")
+        if len(unique) > 1:
+            raise ValueError("remote_file_ambiguous")
+        return unique[0]
+
+    def _remote_command_loop(self) -> None:
+        while not self._remote_stop.wait(2.0):
+            try:
+                credentials = self.auth.active_cloud_identity()
+                if credentials is None:
+                    continue
+                identity, access_token = credentials
+                current = self._register_current_cloud_device(access_token, identity.user_id)
+                commands = self.cloud.pending_commands(access_token, user_id=identity.user_id, target_device_id=str(current["id"]))
+                for command in commands:
+                    self.cloud.set_command_state(access_token, command.id, "running")
+                    result = self._execute_remote_command(command)
+                    self.cloud.set_command_state(access_token, command.id, "succeeded" if result.get("ok") else "failed", error_code=None if result.get("ok") else str(result.get("error") or "remote_action_failed"), result=result)
+            except Exception as error:
+                log_event(self.logger, "remote.poll.failed", error_type=type(error).__name__)
+
     def stop(self) -> None:
         with self._lock:
             if not self._started:
                 return
             self.events.publish("app.stopping", source="application")
+            self._remote_stop.set()
+            if self._remote_thread is not None:
+                self._remote_thread.join(timeout=3.0)
+                self._remote_thread = None
             self.lifecycle.stop(suppress_errors=True)
             self.attachments.clear()
             self._control_preview_path.unlink(missing_ok=True)
@@ -476,6 +699,9 @@ class ArcheonApplication:
         listening_control = self._listening_control(context.text)
         if listening_control is not None:
             return listening_control
+        remote_command = self._queue_remote_mobile_command(context.text)
+        if remote_command is not None:
+            return remote_command
         correlation_id = uuid4().hex
         language = self.language_context.decide(
             context.text,
@@ -2285,16 +2511,29 @@ class ArcheonApplication:
             query = f"{artist} {title}" if title else artist
         if not query:
             return None
+        def song_key(value: str) -> str:
+            clean = re.sub(r"[\(\[].*?[\)\]]", " ", value or "")
+            clean = re.sub(
+                r"\b(?:official|oficial|video|audio|lyrics?|letra|visualizer|hd|4k|remaster(?:ed)?)\b",
+                " ", clean, flags=re.IGNORECASE,
+            )
+            return normalize_media(clean)
         try:
             found = self.media_discovery.search(
                 query, allow_online=self.configuration.config.media.online_providers,
                 include_online_with_local=True, limit=20,
             )
             excluded = set(excluded_ids)
+            queued_song_keys = {
+                song_key(str(item.get("title", "")))
+                for item in self.media.status().get("queue", [])
+                if isinstance(item, dict) and song_key(str(item.get("title", "")))
+            }
             candidates = [
                 self.media_discovery.resolve(str(item["id"]))
                 for item in found.get("results", [])
                 if str(item.get("id", "")) not in excluded
+                and song_key(str(item.get("title", ""))) not in queued_song_keys
             ]
         except (OSError, RuntimeError, ValueError, KeyError, TypeError):
             return None
@@ -2758,7 +2997,7 @@ class ArcheonApplication:
             self._pending_media_result = None
             played = self.handle_action("media.play_result", {"id": best.candidate.id})
             if played.get("ok") and best.candidate.playback_kind == "official_web":
-                playback_message = f"Abrí {display} en el reproductor oficial visible."
+                playback_message = f"Reproduciendo {display}."
             else:
                 playback_message = f"Reproduciendo {display}"
             return {
@@ -2944,7 +3183,21 @@ class ArcheonApplication:
                 if not self.cloud.configured:
                     raise ValueError("cloud_backend_not_configured")
                 if action == "cloud.devices.list":
-                    return {"ok": True, "devices": self.cloud.list_devices(access_token, identity.user_id)}
+                    current = self._register_current_cloud_device(access_token, identity.user_id)
+                    devices = self.cloud.list_devices(access_token, identity.user_id)
+                    return {"ok": True, "devices": [device | {"current": device.get("id") == current.get("id")} for device in devices]}
+                if action == "cloud.devices.rename":
+                    current = self._register_current_cloud_device(access_token, identity.user_id)
+                    device_id = str(payload.get("device_id") or "")
+                    renamed = self.cloud.rename_device(
+                        access_token, user_id=identity.user_id, device_id=device_id,
+                        display_name=str(payload.get("display_name") or ""),
+                    )
+                    if device_id == str(current.get("id") or ""):
+                        self._cloud_device["display_name"] = str(renamed.get("display_name") or self._cloud_device["display_name"])
+                        device_path = self.paths.secure_dir / "cloud-device.json"
+                        device_path.write_text(json.dumps(self._cloud_device), encoding="utf-8")
+                    return {"ok": True, "device": renamed}
                 if action == "cloud.conversations.list":
                     return {"ok": True, "conversations": self.cloud.list_conversations(access_token, identity.user_id)}
                 if action == "cloud.conversations.create":
@@ -3823,7 +4076,7 @@ class ArcheonApplication:
                 "lan_direct": "configured_on_demand" if self.cloud.configured else "not_configured",
                 "remote_relay": "configured_on_demand" if self.cloud.configured else "not_configured",
                 "file_transfer": "configured_on_demand" if self.cloud.configured else "not_configured",
-                "remote_commands": "not_configured",
+                "remote_commands": "configured_on_demand" if self.cloud.configured else "not_configured",
                 "mobile": "configured_on_demand" if self.cloud.configured else "not_configured",
             },
             "plugins": {

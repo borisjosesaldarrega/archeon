@@ -3,8 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+import hashlib
+import json
 from pathlib import Path
+import re
 from typing import Protocol
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,6 +47,80 @@ class UnconfiguredUpdateProvider:
 
     def download(self, release: ReleaseInfo, destination: Path) -> Path:
         raise RuntimeError("update_backend_not_configured")
+
+
+class GitHubReleaseProvider:
+    """Read official releases and require GitHub's SHA-256 asset digest."""
+
+    name = "github_releases"
+    configured = True
+
+    def __init__(self, repository: str, *, timeout: float = 10.0) -> None:
+        if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
+            raise ValueError("invalid_github_repository")
+        self.repository = repository
+        self.timeout = timeout
+
+    @staticmethod
+    def _version_key(value: str) -> tuple[int, ...]:
+        numbers = [int(item) for item in re.findall(r"\d+", value)]
+        return tuple((numbers + [0, 0, 0, 0])[:4])
+
+    def check(self, current_version: str) -> ReleaseInfo | None:
+        request = Request(
+            f"https://api.github.com/repos/{self.repository}/releases/latest",
+            headers={"Accept": "application/vnd.github+json", "User-Agent": "ARCHEON-Updater/10"},
+        )
+        try:
+            with urlopen(request, timeout=self.timeout) as response:
+                value = json.loads(response.read().decode("utf-8"))
+        except HTTPError as error:
+            if error.code == 404:
+                return None
+            raise RuntimeError(f"github_release_http_{error.code}") from None
+        except (OSError, URLError, ValueError, json.JSONDecodeError) as error:
+            raise RuntimeError("github_release_unavailable") from error
+        version = str(value.get("tag_name") or "").lstrip("vV")
+        if not version or self._version_key(version) <= self._version_key(current_version):
+            return None
+        assets = value.get("assets") if isinstance(value.get("assets"), list) else []
+        asset = next((item for item in assets if re.search(r"(?:instalar.*archeon|archeon.*setup).*\.exe$", str(item.get("name") or ""), re.I)), None)
+        if not isinstance(asset, dict):
+            return None
+        digest = str(asset.get("digest") or "")
+        if not re.fullmatch(r"sha256:[0-9a-fA-F]{64}", digest):
+            raise RuntimeError("release_asset_digest_missing")
+        url = str(asset.get("browser_download_url") or "")
+        if not url.startswith(f"https://github.com/{self.repository}/releases/download/"):
+            raise RuntimeError("release_asset_url_invalid")
+        return ReleaseInfo(
+            version=version, notes=str(value.get("body") or "Nueva versión de ARCHEON.")[:8000],
+            download_url=url, sha256=digest.split(":", 1)[1].lower(),
+            signature="github-release-asset-digest",
+        )
+
+    def download(self, release: ReleaseInfo, destination: Path) -> Path:
+        target = destination.expanduser().resolve()
+        target.parent.mkdir(parents=True, exist_ok=True)
+        pending = target.with_suffix(target.suffix + ".part")
+        digest = hashlib.sha256()
+        total = 0
+        request = Request(release.download_url, headers={"User-Agent": "ARCHEON-Updater/10"})
+        try:
+            with urlopen(request, timeout=max(self.timeout, 30.0)) as response, pending.open("wb") as output:
+                while chunk := response.read(1024 * 1024):
+                    total += len(chunk)
+                    if total > 500 * 1024 * 1024:
+                        raise ValueError("update_package_too_large")
+                    digest.update(chunk)
+                    output.write(chunk)
+            if digest.hexdigest() != release.sha256:
+                raise PermissionError("update_sha256_mismatch")
+            pending.replace(target)
+            return target
+        except Exception:
+            pending.unlink(missing_ok=True)
+            raise
 
 
 class UpdateManager:

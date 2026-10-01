@@ -7,7 +7,15 @@ def localPropertiesFile = rootProject.file("local.properties")
 if (localPropertiesFile.exists()) {
     localPropertiesFile.withInputStream { localProperties.load(it) }
 }
-def devToken = (localProperties.getProperty("archeon.devToken") ?: System.getenv("ARCHEON_DEV_TOKEN") ?: "").replace("\\", "\\\\").replace('"', '\\"')
+def rootEnvironment = new Properties()
+def rootEnvironmentFile = rootProject.file("../../.env.local")
+if (rootEnvironmentFile.exists()) {
+    rootEnvironmentFile.withInputStream { rootEnvironment.load(it) }
+}
+def escapeBuildValue = { value -> (value ?: "").replace("\\", "\\\\").replace('"', '\\"') }
+def supabaseUrl = localProperties.getProperty("archeon.supabaseUrl") ?: rootEnvironment.getProperty("ARCHEON_SUPABASE_URL") ?: ""
+def publishableKey = localProperties.getProperty("archeon.supabasePublishableKey") ?: rootEnvironment.getProperty("ARCHEON_SUPABASE_PUBLISHABLE_KEY") ?: ""
+def apiBaseUrl = supabaseUrl ? "${supabaseUrl.replaceAll('/+$', '')}/functions/v1/archeon-mobile-api" : ""
 
 android {
     namespace "com.dzknight.archeon.mobile"
@@ -20,9 +28,10 @@ android {
         applicationId "com.dzknight.archeon.mobile"
         minSdk 26
         targetSdk 35
-        versionCode 1
-        versionName "0.1.0-private"
-        buildConfigField "String", "ARCHEON_DEV_TOKEN", "\"${devToken}\""
+        versionCode 2
+        versionName "0.2.0-standalone"
+        buildConfigField "String", "ARCHEON_API_BASE_URL", "\"${escapeBuildValue(apiBaseUrl)}\""
+        buildConfigField "String", "ARCHEON_SUPABASE_PUBLISHABLE_KEY", "\"${escapeBuildValue(publishableKey)}\""
     }
 
     buildTypes {
@@ -40,4 +49,14 @@ android {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
+
+    sourceSets {
+        main {
+            assets.srcDirs += [rootProject.file("../../src/archeon/ui")]
+        }
+    }
+}
+
+dependencies {
+    implementation "androidx.core:core:1.15.0"
 }

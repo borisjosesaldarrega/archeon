@@ -567,6 +567,17 @@ class AuthManager(ManagedComponent):
             raise ValueError("account_session_required")
         return current.identity, current.access_token
 
+    def active_cloud_identity(self) -> tuple[Identity, str] | None:
+        """Return credentials for the current account without exposing the local UI token."""
+        with self._lock:
+            tokens = [token for token, session in self._sessions.items() if session.mode == "account"]
+        for token in tokens:
+            try:
+                return self.cloud_identity(token)
+            except ValueError:
+                continue
+        return None
+
     def logout(self, token: str, *, scope: str = "global") -> bool:
         with self._lock:
             session = self._sessions.pop(token, None)
@@ -642,7 +653,20 @@ class AuthManager(ManagedComponent):
         return session
 
     def _start(self) -> None:
-        return None
+        with self._lock:
+            if self._sessions:
+                return
+        try:
+            restored = self.restore()
+        except ValueError as error:
+            self._events.publish(
+                "auth.session.restore_failed", {"error": str(error)}, source="auth",
+            )
+            return
+        if restored is not None:
+            self._events.publish(
+                "auth.session.restored", {"mode": restored.mode}, source="auth",
+            )
 
     def _stop(self) -> None:
         with self._lock:

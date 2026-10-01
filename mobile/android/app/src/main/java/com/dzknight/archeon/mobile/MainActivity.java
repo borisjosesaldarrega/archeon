@@ -1,16 +1,22 @@
 package com.dzknight.archeon.mobile;
 
 import android.app.Activity;
+import android.app.Dialog;
 import android.app.Notification;
 import android.app.NotificationManager;
+import android.app.PictureInPictureParams;
 import android.content.ContentValues;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.content.res.Configuration;
 import android.media.AudioAttributes;
 import android.media.AudioFocusRequest;
 import android.media.AudioManager;
 import android.graphics.Color;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.provider.MediaStore;
 import android.speech.RecognitionListener;
@@ -25,6 +31,7 @@ import android.webkit.PermissionRequest;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -32,7 +39,13 @@ import android.widget.TextView;
 import android.widget.Toast;
 import android.widget.Button;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.ProgressBar;
+import android.widget.ScrollView;
+import android.util.Rational;
+import android.util.Base64;
+
+import androidx.core.content.FileProvider;
 
 import org.json.JSONObject;
 
@@ -40,6 +53,12 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.OutputStream;
 
 public final class MainActivity extends Activity {
     private static final int FILE_CHOOSER = 702;
@@ -62,6 +81,10 @@ public final class MainActivity extends Activity {
     private String textToSpeechEngine = "system";
     private AudioManager audioManager;
     private AudioFocusRequest speechFocusRequest;
+    private boolean backgroundModeEnabled;
+    private boolean mediaPlaybackActive;
+    private static final int LEGACY_FILE_SAVE = 703;
+    private byte[] pendingLegacyFile;
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
@@ -75,6 +98,8 @@ public final class MainActivity extends Activity {
         splashRetry = findViewById(R.id.splash_retry);
         splashRetry.setOnClickListener(view -> loadArcheon());
         bridge = new NativeBridge(this, new SecureStore(this));
+        backgroundModeEnabled = bridge.backgroundModeEnabled();
+        if (backgroundModeEnabled) setBackgroundModeEnabled(true);
         NativeBridge.createNotificationChannel(this);
         setVolumeControlStream(AudioManager.STREAM_MUSIC);
         audioManager = getSystemService(AudioManager.class);
@@ -88,6 +113,10 @@ public final class MainActivity extends Activity {
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
+        settings.setUseWideViewPort(true);
+        settings.setLoadWithOverviewMode(false);
+        settings.setSupportZoom(false);
+        settings.setBuiltInZoomControls(false);
         settings.setAllowFileAccess(false);
         settings.setAllowContentAccess(true);
         // ARCHEON only embeds allow-listed media sources. Commands resolve
@@ -106,9 +135,29 @@ public final class MainActivity extends Activity {
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 Uri uri = request.getUrl();
                 String scheme = uri.getScheme();
-                if ("http".equals(scheme) || "https".equals(scheme)) return false;
+                if ("https".equals(scheme) && "appassets.androidplatform.net".equals(uri.getHost())) return false;
+                if ("http".equals(scheme) || "https".equals(scheme)) {
+                    startActivity(new Intent(Intent.ACTION_VIEW, uri));
+                    return true;
+                }
                 startActivity(new Intent(Intent.ACTION_VIEW, uri));
                 return true;
+            }
+            @Override public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                Uri uri = request.getUrl();
+                if (!"https".equals(uri.getScheme()) || !"appassets.androidplatform.net".equals(uri.getHost())) return null;
+                String path = uri.getPath() == null ? "" : uri.getPath().replaceFirst("^/", "");
+                if (path.isBlank() || path.contains("..")) return null;
+                try {
+                    String mime = android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(
+                        android.webkit.MimeTypeMap.getFileExtensionFromUrl(path)
+                    );
+                    if (mime == null) mime = "application/octet-stream";
+                    String encoding = mime.startsWith("text/") || mime.contains("javascript") || mime.contains("json") ? "utf-8" : null;
+                    return new WebResourceResponse(mime, encoding, getAssets().open(path));
+                } catch (IOException missing) {
+                    return null;
+                }
             }
             @Override public void onPageFinished(WebView view, String url) {
                 if (mainFrameFailed) return;
@@ -215,9 +264,8 @@ public final class MainActivity extends Activity {
     }
 
     private void loadArcheon() {
-        String token = BuildConfig.ARCHEON_DEV_TOKEN;
-        if (token == null || token.isBlank()) {
-            splashStatus.setText("Falta vincular este dispositivo con ARCHEON Desktop");
+        if (BuildConfig.ARCHEON_API_BASE_URL.isBlank() || BuildConfig.ARCHEON_SUPABASE_PUBLISHABLE_KEY.isBlank()) {
+            splashStatus.setText("Falta configurar el servicio independiente de ARCHEON");
             return;
         }
         mainFrameFailed = false;
@@ -227,7 +275,19 @@ public final class MainActivity extends Activity {
         splashProgress.setVisibility(View.VISIBLE);
         splashRetry.setVisibility(View.GONE);
         splashStatus.setText("Preparando ARCHI…");
-        webView.loadUrl("http://127.0.0.1:56789/mobile.html?token=" + Uri.encode(token));
+        try (InputStream source = getAssets().open("mobile.html")) {
+            ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+            source.transferTo(buffer);
+            webView.loadDataWithBaseURL(
+                "https://appassets.androidplatform.net/",
+                buffer.toString(java.nio.charset.StandardCharsets.UTF_8),
+                "text/html", "utf-8", null
+            );
+        } catch (IOException error) {
+            splashProgress.setVisibility(View.GONE);
+            splashRetry.setVisibility(View.VISIBLE);
+            splashStatus.setText("No se pudo abrir la interfaz incluida en ARCHEON");
+        }
     }
 
     @Override public void onBackPressed() {
@@ -247,9 +307,41 @@ public final class MainActivity extends Activity {
     @Override protected void onPause() {
         if (webView != null) {
             emitNativeEvent("lifecycle", "{\"state\":\"background\"}");
-            webView.onPause();
+            if (!backgroundModeEnabled) webView.onPause();
         }
         super.onPause();
+    }
+
+    void setBackgroundModeEnabled(boolean enabled) {
+        backgroundModeEnabled = enabled;
+        Intent service = new Intent(this, ArcheonBackgroundService.class);
+        if (enabled) startForegroundService(service);
+        else stopService(service);
+    }
+
+    void setMediaPlaybackActive(boolean active) { mediaPlaybackActive = active; }
+
+    @Override public void onUserLeaveHint() {
+        if (backgroundModeEnabled && mediaPlaybackActive && !isInPictureInPictureMode()) {
+            try {
+                enterPictureInPictureMode(new PictureInPictureParams.Builder()
+                    .setAspectRatio(new Rational(16, 9)).build());
+            } catch (IllegalStateException ignored) { }
+        }
+        super.onUserLeaveHint();
+    }
+
+    @Override public void onPictureInPictureModeChanged(boolean active, Configuration configuration) {
+        super.onPictureInPictureModeChanged(active, configuration);
+        emitNativeEvent("lifecycle", "{\"state\":\"pip\",\"active\":" + active + "}");
+        if (!active && webView != null) {
+            webView.postDelayed(() -> {
+                webView.scrollTo(0, 0);
+                webView.requestLayout();
+                webView.invalidate();
+                webView.evaluateJavascript("window.scrollTo(0,0);window.dispatchEvent(new Event('resize'));", null);
+            }, 180L);
+        }
     }
 
     @Override protected void onDestroy() {
@@ -291,6 +383,133 @@ public final class MainActivity extends Activity {
             } else fileCallback.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(resultCode, data));
             fileCallback = null;
         }
+        if (requestCode == LEGACY_FILE_SAVE && pendingLegacyFile != null) {
+            boolean saved = false;
+            if (resultCode == RESULT_OK && data != null && data.getData() != null) {
+                try (OutputStream output = getContentResolver().openOutputStream(data.getData())) {
+                    if (output != null) { output.write(pendingLegacyFile); saved = true; }
+                } catch (IOException ignored) { }
+            }
+            pendingLegacyFile = null;
+            emitCloudFile(saved ? "downloaded" : "error", saved ? "Archivo guardado en el teléfono." : "No se pudo guardar el archivo.");
+        }
+    }
+
+    void handleCloudFile(String name, String mimeType, String contentBase64, boolean preview) {
+        new Thread(() -> {
+            try {
+                byte[] bytes = Base64.decode(contentBase64, Base64.DEFAULT);
+                if (preview) {
+                    File directory = new File(getCacheDir(), "cloud-previews");
+                    if (!directory.exists() && !directory.mkdirs()) throw new IOException("preview_directory_failed");
+                    File file = new File(directory, name);
+                    try (FileOutputStream output = new FileOutputStream(file, false)) { output.write(bytes); }
+                    if ("application/pdf".equalsIgnoreCase(mimeType)) {
+                        Intent previewIntent = new Intent(this, CloudPreviewActivity.class)
+                            .putExtra("path", file.getAbsolutePath())
+                            .putExtra("name", name);
+                        runOnUiThread(() -> {
+                            startActivity(previewIntent);
+                            emitCloudFile("preview", "Vista previa abierta.");
+                        });
+                        return;
+                    }
+                    if (mimeType.toLowerCase(Locale.ROOT).startsWith("image/")) {
+                        Bitmap bitmap = BitmapFactory.decodeFile(file.getAbsolutePath());
+                        if (bitmap == null) throw new IOException("preview_decode_failed");
+                        showBitmapPreview(bitmap, name, "Imagen");
+                        return;
+                    }
+                    Uri uri = FileProvider.getUriForFile(this, getPackageName() + ".files", file);
+                    Intent view = new Intent(Intent.ACTION_VIEW).setDataAndType(uri, mimeType)
+                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+                    runOnUiThread(() -> {
+                        try {
+                            startActivity(Intent.createChooser(view, "Abrir " + name));
+                            emitCloudFile("preview", "Abriendo " + name + "…");
+                        }
+                        catch (RuntimeException error) { emitCloudFile("error", "No hay una aplicación compatible para previsualizar este archivo."); }
+                    });
+                    return;
+                }
+                if (Build.VERSION.SDK_INT >= 29) {
+                    ContentValues values = new ContentValues();
+                    values.put(MediaStore.Downloads.DISPLAY_NAME, name);
+                    values.put(MediaStore.Downloads.MIME_TYPE, mimeType);
+                    values.put(MediaStore.Downloads.RELATIVE_PATH, "Download/ARCHEON");
+                    values.put(MediaStore.Downloads.IS_PENDING, 1);
+                    Uri uri = getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
+                    if (uri == null) throw new IOException("download_insert_failed");
+                    try (OutputStream output = getContentResolver().openOutputStream(uri)) {
+                        if (output == null) throw new IOException("download_stream_failed");
+                        output.write(bytes);
+                    } catch (IOException error) {
+                        getContentResolver().delete(uri, null, null);
+                        throw error;
+                    }
+                    values.clear(); values.put(MediaStore.Downloads.IS_PENDING, 0);
+                    getContentResolver().update(uri, values, null, null);
+                    emitCloudFile("downloaded", name + " se guardó en Descargas/ARCHEON.");
+                } else {
+                    pendingLegacyFile = bytes;
+                    Intent create = new Intent(Intent.ACTION_CREATE_DOCUMENT)
+                        .addCategory(Intent.CATEGORY_OPENABLE).setType(mimeType).putExtra(Intent.EXTRA_TITLE, name);
+                    runOnUiThread(() -> startActivityForResult(create, LEGACY_FILE_SAVE));
+                }
+            } catch (IllegalArgumentException | IOException error) {
+                emitCloudFile("error", "No se pudo preparar el archivo en este teléfono.");
+            }
+        }, "archeon-cloud-file").start();
+    }
+
+    private void showBitmapPreview(Bitmap bitmap, String name, String detail) {
+        runOnUiThread(() -> {
+            Dialog dialog = new Dialog(this, android.R.style.Theme_DeviceDefault_NoActionBar);
+            LinearLayout root = new LinearLayout(this);
+            root.setOrientation(LinearLayout.VERTICAL);
+            root.setPadding(24, 24, 24, 24);
+            root.setBackgroundColor(Color.rgb(5, 15, 20));
+
+            TextView title = new TextView(this);
+            title.setText(name + "\n" + detail);
+            title.setTextColor(Color.WHITE);
+            title.setTextSize(18);
+            title.setPadding(8, 8, 8, 20);
+
+            ImageView image = new ImageView(this);
+            image.setImageBitmap(bitmap);
+            image.setAdjustViewBounds(true);
+            image.setScaleType(ImageView.ScaleType.FIT_CENTER);
+            image.setContentDescription("Vista previa de " + name);
+            image.setBackgroundColor(Color.WHITE);
+
+            ScrollView scroll = new ScrollView(this);
+            scroll.setFillViewport(true);
+            scroll.addView(image, new ScrollView.LayoutParams(
+                ScrollView.LayoutParams.MATCH_PARENT, ScrollView.LayoutParams.WRAP_CONTENT));
+
+            Button close = new Button(this);
+            close.setText("Cerrar vista previa");
+            close.setOnClickListener(view -> dialog.dismiss());
+
+            root.addView(title, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+            root.addView(scroll, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
+            root.addView(close, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+            dialog.setContentView(root);
+            dialog.setOnDismissListener(value -> bitmap.recycle());
+            dialog.show();
+            if (dialog.getWindow() != null) dialog.getWindow().setLayout(
+                android.view.WindowManager.LayoutParams.MATCH_PARENT,
+                android.view.WindowManager.LayoutParams.MATCH_PARENT);
+            emitCloudFile("preview", "Vista previa abierta.");
+        });
+    }
+
+    private void emitCloudFile(String state, String message) {
+        emitNativeEvent("cloud-file", new JSONObject(Map.of("state", state, "message", message)).toString());
     }
 
     @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] results) {

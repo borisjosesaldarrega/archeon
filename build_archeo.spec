@@ -5,6 +5,7 @@ The installer remains a single compressed executable, while the installed app
 avoids PyInstaller's per-launch extraction process and its temporary parent.
 """
 
+import json
 from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_dynamic_libs
@@ -16,14 +17,37 @@ GetModule("UIAutomationCore.dll")
 
 
 ROOT = Path(SPECPATH)
+
+
+def public_cloud_config() -> Path:
+    values = {}
+    for source in (ROOT / ".env", ROOT / ".env.local"):
+        if not source.is_file():
+            continue
+        for line in source.read_text(encoding="utf-8").splitlines():
+            clean = line.strip()
+            if not clean or clean.startswith("#") or "=" not in clean:
+                continue
+            key, value = clean.split("=", 1)
+            if key in {"ARCHEON_SUPABASE_URL", "ARCHEON_SUPABASE_PUBLISHABLE_KEY"}:
+                values[key] = value.strip().strip('"').strip("'")
+    target = ROOT / "build" / "archeon-public-cloud.json"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(values, separators=(",", ":")), encoding="utf-8")
+    return target
+
+
 datas = [
     (str(ROOT / "src" / "archeon" / "ui"), "archeon/ui"),
     (str(ROOT / "assets" / "ARCHEON.mp4"), "archeon/ui"),
+    (str(public_cloud_config()), "archeon"),
 ]
 binaries = collect_dynamic_libs("vosk")
 hiddenimports = [
     "webview",
     "webview.platforms.winforms",
+    "pystray",
+    "pystray._win32",
     "sounddevice",
     "vosk",
     "webrtcvad",

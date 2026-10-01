@@ -254,6 +254,12 @@
       </form>
     </dialog>
 
+    <dialog id="cloud-preview-dialog" class="cloud-preview-dialog" aria-label="Vista previa de ARCHEON Cloud">
+      <header><div><span class="eyebrow">ARCHEON CLOUD · VISTA PREVIA</span><strong id="cloud-preview-title">Documento</strong></div><button id="cloud-preview-close" type="button" aria-label="Cerrar vista previa">×</button></header>
+      <iframe id="cloud-preview-frame" title="Contenido del archivo" sandbox="allow-same-origin allow-scripts allow-forms allow-downloads"></iframe>
+      <p>Usa los controles del visor para cambiar de página, ampliar, reducir, imprimir o guardar.</p>
+    </dialog>
+
     <dialog id="youtube-player-dialog" class="official-media-dialog" aria-label="Reproductor oficial de YouTube">
       <header><div><span class="eyebrow">YOUTUBE · REPRODUCTOR OFICIAL</span><strong id="youtube-player-title">Contenido visual</strong></div><button id="youtube-player-close" type="button" aria-label="Cerrar reproductor">×</button></header>
       <div id="youtube-player" class="official-youtube-player"></div>
@@ -412,7 +418,8 @@
             <section class="settings-section" data-settings-panel="updates" data-search-terms="actualizaciones versión descargar verificar instalar reiniciar notas">
               <h3 data-i18n="updates.title">Actualizaciones</h3><p data-i18n="updates.description">ARCHEON solo aceptará paquetes con hash y firma verificados antes de preparar un reinicio.</p>
               <div id="settings-updates-status" class="status-list" aria-live="polite"></div>
-              <p class="provider-note" data-i18n="updates.note">Proveedor de versiones: no configurado. ARCHEON no afirmará que está actualizado hasta disponer de un backend firmado.</p>
+              <button id="settings-check-updates" class="outline" type="button">Buscar actualizaciones</button>
+              <p class="provider-note">Las versiones se consultan desde el repositorio oficial y el instalador solo se acepta cuando GitHub publica su resumen SHA-256.</p>
             </section>
             <p id="settings-search-empty" class="provider-note" hidden>No se encontraron configuraciones.</p>
           </div>

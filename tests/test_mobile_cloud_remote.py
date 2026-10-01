@@ -83,11 +83,44 @@ class MobileCloudRemoteTests(unittest.TestCase):
         self.assertEqual(parser.parse("Apaga la PC").action, RemoteAction.SHUTDOWN)
         self.assertEqual(parser.parse("abre Minecraft en mi PC").arguments["query"], "minecraft")
         self.assertEqual(parser.parse("reproduce Daft Punk en la computadora").action, RemoteAction.MEDIA_PLAY)
+        self.assertEqual(parser.parse("reproduce Daft Punk en mi celular").target_kind, "mobile")
+        self.assertEqual(parser.parse("abre Discord en el móvil").arguments["query"], "discord")
+        self.assertEqual(parser.parse("habre Discord en mi PC").arguments["query"], "discord")
+        self.assertEqual(parser.parse("ponme Daft Punk en mi celular").action, RemoteAction.MEDIA_PLAY)
         for phrase in (
             "no apagues la PC", "¿cómo apago la PC?", "la PC se apaga sola",
             "cuando apague la PC", "hablábamos de apagar la PC", "abre Minecraft",
+            "crea un documento para PC", "haz una imagen de un celular",
+            "el archivo está en mi PC", "quiero una app móvil",
         ):
             self.assertIsNone(parser.parse(phrase), phrase)
+
+    def test_remote_language_parser_resolves_safe_aliases_and_small_typos(self) -> None:
+        parser = RemoteIntentParser()
+        devices = {"Galaxy Boris": "android", "PC Estudio": "windows", "ARCHEON PC · DZ-KNIGHT": "windows", "PC Jarvis": "windows"}
+        mobile = parser.parse("abre Discord en Galaxy Boris", devices)
+        desktop = parser.parse("reproduce Daft Punk en PC Estudio", devices)
+        self.assertIsNotNone(mobile)
+        self.assertEqual(mobile.target_kind, "mobile")
+        self.assertEqual(mobile.target_name, "Galaxy Boris")
+        self.assertIsNotNone(desktop)
+        self.assertEqual(desktop.target_kind, "desktop")
+        self.assertEqual(desktop.target_name, "PC Estudio")
+        branded = parser.parse("abre Discord en ARCHEON PC · DZ-KNIGHT", devices)
+        self.assertIsNotNone(branded)
+        self.assertEqual(branded.target_name, "ARCHEON PC · DZ-KNIGHT")
+        alias = parser.parse("abreme Discord en jarvis", devices)
+        self.assertIsNotNone(alias)
+        self.assertEqual(alias.target_name, "PC Jarvis")
+        typo = parser.parse("jarivs abre Discord", devices)
+        self.assertIsNotNone(typo)
+        self.assertEqual(typo.target_name, "PC Jarvis")
+        self.assertIsNone(parser.parse("abre Discord en el teléfono de otra persona", devices))
+
+    def test_remote_language_parser_rejects_ambiguous_alias(self) -> None:
+        parser = RemoteIntentParser()
+        devices = {"PC Jarvis": "windows", "Celular Jarvis": "android"}
+        self.assertIsNone(parser.parse("abre Discord en Jarvis", devices))
 
     def test_preview_allowlist_rejects_active_or_unknown_content(self) -> None:
         self.assertTrue(can_preview("application/pdf"))
@@ -95,11 +128,54 @@ class MobileCloudRemoteTests(unittest.TestCase):
         self.assertFalse(can_preview("text/html"))
         self.assertFalse(can_preview("application/x-msdownload"))
 
+    def test_android_pdf_preview_supports_real_zoom_navigation_and_safe_reopen(self) -> None:
+        source = Path("mobile/android/app/src/main/java/com/dzknight/archeon/mobile/CloudPreviewActivity.java").read_text(encoding="utf-8")
+        manifest = Path("mobile/android/app/src/main/AndroidManifest.xml").read_text(encoding="utf-8")
+        self.assertIn("PdfRenderer", source)
+        self.assertIn("HorizontalScrollView", source)
+        self.assertIn("imageLayout.width = rendered.getWidth()", source)
+        self.assertIn("changeZoom(0.25f)", source)
+        self.assertIn("renderPage(pageIndex + 1)", source)
+        self.assertIn('android:name=".CloudPreviewActivity"', manifest)
+        self.assertIn('android:exported="false"', manifest)
+        self.assertIn('<queries>', manifest)
+        self.assertIn('android.intent.category.LAUNCHER', manifest)
+
+    def test_mobile_edge_uses_account_conversation_history_and_exposes_mfa_lifecycle(self) -> None:
+        source = Path("supabase/functions/archeon-mobile-api/index.ts").read_text(encoding="utf-8")
+        self.assertIn('operation === "mfa-enroll"', source)
+        self.assertIn('operation === "mfa-verify"', source)
+        self.assertIn('operation === "mfa-unenroll"', source)
+        self.assertIn('conversation_id=eq.${encodeURIComponent(String(payload.conversation_id))}', source)
+        self.assertIn('history = stored.reverse()', source)
+        self.assertIn('recent?.body ?? recent?.content', source)
+        self.assertIn('contextualResearchSubject(text, history)', source)
+        self.assertIn('sabes\\s+', source)
+        self.assertIn('continua|sigue', source)
+        self.assertIn('que\\s+mas', source)
+        self.assertIn('function isContextFollowup', source)
+        self.assertIn('!isContextFollowup(String(item.body || ""))', source)
+
     def test_cloud_client_is_explicitly_unconfigured(self) -> None:
         client = ArcheonCloudClient("", "")
         self.assertFalse(client.configured)
         with self.assertRaisesRegex(ValueError, "not_configured"):
             client.list_devices("token", "user")
+
+    def test_device_heartbeat_preserves_name_changed_from_another_device(self) -> None:
+        client = ArcheonCloudClient("https://example.supabase.co", "publishable")
+        with patch.object(client, "_rest", side_effect=[
+            [{"id": "pc-1", "display_name": "Jarvis"}],
+            [{"id": "pc-1", "display_name": "Jarvis"}],
+        ]) as request:
+            registered = client.register_device(
+                "token", user_id="user-1", installation_id="install-1",
+                display_name="ARCHEON PC · DZ-KNIGHT", platform="windows",
+                public_key="public", capabilities=["launcher.open"],
+            )
+        self.assertEqual(registered["display_name"], "Jarvis")
+        posted = request.call_args_list[1].args[3]
+        self.assertEqual(posted["display_name"], "Jarvis")
 
     def test_cloud_download_verifies_integrity(self) -> None:
         client = ArcheonCloudClient("https://example.supabase.co", "publishable")

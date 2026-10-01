@@ -122,6 +122,7 @@ class MediaEngine(ManagedComponent):
                 "codec_backend": getattr(player, "codec_backend", None) if player is not None else None,
                 "queue_length": len(self._queue),
                 "queue_index": self._index,
+                "queue": [item.public() for item in self._queue],
                 "position_ms": position_ms,
                 "volume": self._volume,
                 "track": track.public() if track else None,

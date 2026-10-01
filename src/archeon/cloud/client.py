@@ -84,13 +84,26 @@ class ArcheonCloudClient:
     def register_device(
         self, access_token: str, *, user_id: str, installation_id: str,
         display_name: str, platform: str, public_key: str, capabilities: list[str],
+        remote_control_enabled: bool = False, file_access_enabled: bool = True,
     ) -> dict[str, Any]:
+        existing = self._rest(
+            "GET", "archeon_devices", access_token,
+            query={
+                "select": "id,display_name", "user_id": f"eq.{user_id}",
+                "installation_id": f"eq.{installation_id}", "limit": "1",
+            }, prefer="",
+        )
+        effective_name = str(existing[0].get("display_name") or display_name) if isinstance(existing, list) and existing else display_name
         rows = self._rest(
             "POST", "archeon_devices", access_token,
             {
                 "user_id": user_id, "installation_id": installation_id,
-                "display_name": display_name[:120], "platform": platform,
+                "display_name": effective_name[:120], "platform": platform,
                 "public_key": public_key, "capabilities": sorted(set(capabilities)),
+                "remote_control_enabled": remote_control_enabled,
+                "file_access_enabled": file_access_enabled,
+                "last_seen_at": datetime.now(UTC).isoformat(),
+                "updated_at": datetime.now(UTC).isoformat(),
             },
             query={"on_conflict": "user_id,installation_id"},
             prefer="resolution=merge-duplicates,return=representation",
@@ -108,6 +121,19 @@ class ArcheonCloudClient:
             }, prefer="",
         )
         return [dict(row) for row in value] if isinstance(value, list) else []
+
+    def rename_device(self, access_token: str, *, user_id: str, device_id: str, display_name: str) -> dict[str, Any]:
+        clean = " ".join(display_name.split())[:60]
+        if not clean:
+            raise ValueError("device_name_required")
+        rows = self._rest(
+            "PATCH", "archeon_devices", access_token,
+            {"display_name": clean, "updated_at": datetime.now(UTC).isoformat()},
+            query={"id": f"eq.{device_id}", "user_id": f"eq.{user_id}"},
+        )
+        if not isinstance(rows, list) or not rows:
+            raise ValueError("device_not_found")
+        return dict(rows[0])
 
     def queue_command(self, access_token: str, command: RemoteCommand) -> dict[str, Any]:
         if not command.signature:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import tempfile
+import time
 import unittest
 import os
 from io import BytesIO
@@ -198,6 +199,30 @@ class AuthTests(unittest.TestCase):
         self.assertEqual(restored.identity.user_id, guest.identity.user_id)
         self.assertTrue(second.logout(restored.token))
         self.assertIsNone(vault.load())
+
+    def test_start_restores_persisted_account_for_background_services(self) -> None:
+        class Provider:
+            name = "fake-cloud"
+
+            def restore(self, refresh_token):
+                self.restored = refresh_token
+                return ProviderSession(
+                    Identity("user-a", "a@example.com", "A"),
+                    "access-2", "refresh-2", int(time.time()) + 3600, True,
+                )
+
+        vault = MemorySessionVault()
+        vault.save({"mode": "account", "refresh_token": "refresh-1", "user_id": "user-a"})
+        provider = Provider()
+        manager = AuthManager(EventBus(), provider, vault)
+        manager.start()
+        try:
+            identity = manager.active_cloud_identity()
+            self.assertIsNotNone(identity)
+            self.assertEqual(identity[0].user_id, "user-a")
+            self.assertEqual(provider.restored, "refresh-1")
+        finally:
+            manager.stop()
 
     @unittest.skipUnless(os.name == "nt", "Windows DPAPI only")
     def test_dpapi_vault_never_writes_plaintext(self) -> None:

@@ -605,6 +605,21 @@ body.has-mobile-background {
   white-space: pre-wrap;
 }
 
+.message-speaker {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.message.user .message-speaker {
+  color: #b9f8ff;
+  text-align: right;
+}
+
 .message-attachment {
   min-width: 0;
   display: grid;
@@ -639,20 +654,23 @@ body.has-mobile-background {
 }
 
 .mobile-media-player {
-  position: fixed;
-  z-index: 12;
-  left: 12px;
-  right: 12px;
-  bottom: 144px;
+  position: relative;
+  z-index: 2;
+  left: auto;
+  right: auto;
+  bottom: auto;
+  min-height: 64px;
+  display: block;
+  margin: 0 12px 76px;
   overflow: hidden;
-  border: 1px solid var(--accent);
-  border-radius: 16px;
-  background: #05090c;
-  box-shadow: 0 18px 48px rgba(0, 0, 0, .62);
+  border: 1px solid color-mix(in srgb, var(--accent) 52%, var(--line));
+  border-radius: 14px;
+  background: rgba(5, 12, 16, .96);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, .42);
 }
 
 .mobile-media-player header {
-  min-height: 48px;
+  min-height: 58px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -664,11 +682,25 @@ body.has-mobile-background {
 .mobile-media-player small { color: var(--accent); font-size: 8px; letter-spacing: .13em; }
 .mobile-media-player strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 .mobile-media-player button { width: 34px; height: 34px; border: 0; border-radius: 50%; background: #102229; color: var(--text); }
-.mobile-media-player iframe { width: 100%; aspect-ratio: 16 / 9; display: block; border: 0; background: #000; }
-.mobile-media-player iframe[hidden] { display: none; }
-.mobile-media-player audio { width: calc(100% - 20px); height: 46px; display: block; margin: 0 10px 10px; }
+.mobile-media-frame { width: 100%; height: auto; aspect-ratio: 16 / 9; display: block; background: #000; border-top: 1px solid var(--line); }
+.mobile-media-frame[hidden] { display: none; }
+.mobile-media-frame iframe { width: 100%; height: 100%; display: block; border: 0; background: #000; }
+body.mobile-pip .topbar,body.mobile-pip #mobile-messages,body.mobile-pip #mobile-attachment-previews,body.mobile-pip #mobile-command,body.mobile-pip .bottom-nav,body.mobile-pip .mobile-media-player>header,body.mobile-pip #mobile-media-audio{display:none!important}
+body.mobile-pip main,body.mobile-pip #mobile-chat-panel{position:fixed!important;inset:0!important;width:100%!important;height:100%!important;padding:0!important;margin:0!important}
+body.mobile-pip .mobile-media-player{display:block!important;position:fixed!important;inset:0!important;width:100%!important;height:100%!important;margin:0!important;border:0!important;border-radius:0!important}
+body.mobile-pip .mobile-media-frame,body.mobile-pip .mobile-media-frame iframe{width:100%!important;height:100%!important;aspect-ratio:auto!important}
+.mobile-media-player audio { width: 100%; height: 64px; display: block; margin: 0; border-top: 1px solid var(--line); }
 .mobile-media-player audio[hidden] { display: none; }
-body.mobile-media-active .messages { padding-bottom: 330px; }
-body.mobile-media-active .mobile-attachment-previews { bottom: 338px; }
+/* The player owns a real row in the chat instead of floating over messages or
+   the composer. The bottom margin is the composer's reserved footprint. */
+#mobile-chat-panel.active { grid-template-rows: minmax(0, 1fr) auto; overflow: hidden; }
+body.mobile-media-active .messages { padding-bottom: 18px; scroll-padding-bottom: 18px; }
+body.mobile-media-active .mobile-attachment-previews { bottom: 226px; }
+.device-name-editor{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;margin-top:6px}.device-name-editor input{min-width:0;min-height:38px;padding:0 10px;border:1px solid var(--line);border-radius:9px;background:#071014;color:var(--text)}.device-name-editor button{min-height:38px;padding:0 12px;border:1px solid var(--accent);border-radius:9px;background:rgba(0,232,255,.08);color:var(--accent);font-weight:700}
+.mobile-confirm-dialog{width:min(360px,calc(100vw - 32px));padding:22px;border:1px solid var(--line);border-radius:20px;background:#071014;color:var(--text)}.mobile-confirm-dialog::backdrop{background:#000b;backdrop-filter:blur(5px)}.mobile-confirm-dialog h2{margin:4px 0 8px}.mobile-confirm-dialog p:not(.eyebrow){margin:0 0 20px;color:var(--muted);line-height:1.5}.mobile-confirm-actions{display:grid;grid-template-columns:1fr 1fr;gap:10px}.mobile-confirm-actions button{min-height:44px;border:1px solid var(--line);border-radius:12px;background:#0b151b;color:var(--text);font-weight:700}.mobile-confirm-actions button.danger{border-color:#ff5c73;color:#ff8c9c;background:rgba(255,92,115,.08)}
 .mobile-cloud-state{display:grid;justify-items:center;gap:8px;text-align:center}.mobile-cloud-state img{width:112px;height:112px;object-fit:contain;filter:drop-shadow(0 0 18px color-mix(in srgb,var(--accent) 28%,transparent))}.mobile-cloud-state p{margin:0}
 .mascot-error-dialog{width:min(390px,calc(100vw - 32px));padding:22px;border:1px solid var(--accent);border-radius:20px;background:#071014;color:var(--text);text-align:center}.mascot-error-dialog::backdrop{background:#000b;backdrop-filter:blur(5px)}.mascot-error-dialog img{width:132px;height:132px;object-fit:contain;filter:drop-shadow(0 0 20px color-mix(in srgb,var(--accent) 45%,transparent))}.mascot-error-dialog h2{margin:4px 0 8px}.mascot-error-dialog p{margin:0 0 18px;color:var(--muted);line-height:1.5}.mascot-error-dialog button{width:100%;min-height:46px;border:1px solid var(--accent);border-radius:12px;background:rgba(0,232,255,.08);color:var(--accent);font-weight:700}
+.mobile-mfa-settings{display:grid;gap:10px;margin-top:14px;padding-top:14px;border-top:1px solid rgba(0,232,255,.22)}
+.mobile-mfa-settings img{display:block;width:190px;max-width:100%;margin:4px auto;background:#fff;border-radius:12px}
+.mobile-mfa-settings code{display:block;overflow-wrap:anywhere;color:var(--accent,#00e8ff);user-select:all}
+.mobile-mfa-settings label,.mobile-mfa-settings>div{display:grid;gap:8px}
