@@ -148,13 +148,16 @@ class MobileCloudRemoteTests(unittest.TestCase):
         self.assertIn('operation === "mfa-unenroll"', source)
         self.assertIn('conversation_id=eq.${encodeURIComponent(String(payload.conversation_id))}', source)
         self.assertIn('history = stored.reverse()', source)
-        self.assertIn('recent?.body ?? recent?.content', source)
         self.assertIn('contextualResearchSubject(text, history)', source)
         self.assertIn('sabes\\s+', source)
         self.assertIn('continua|sigue', source)
         self.assertIn('que\\s+mas', source)
         self.assertIn('function isContextFollowup', source)
-        self.assertIn('!isContextFollowup(String(item.body || ""))', source)
+        self.assertIn('function lastResearchSubject', source)
+        self.assertIn('replace(/^Más contexto sobre\\s+/iu, "")', source)
+        self.assertIn('Fuente consultada: [Wikipedia]', source)
+        self.assertIn('Es una solicitud nueva, no una continuación del tema anterior', source)
+        self.assertNotIn('Entiendo que continúas con', source)
 
     def test_cloud_client_is_explicitly_unconfigured(self) -> None:
         client = ArcheonCloudClient("", "")

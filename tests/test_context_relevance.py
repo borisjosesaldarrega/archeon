@@ -27,3 +27,19 @@ def test_same_topic_keeps_context() -> None:
     gate = ContextRelevanceGate()
     history = _turn("cómo se dice buenos días en inglés")
     assert gate.filter("ahora traduce buenas noches", history) == tuple(history)
+
+
+def test_device_action_does_not_replace_research_topic() -> None:
+    gate = ContextRelevanceGate()
+    history = [
+        *_turn("sabes quien es Alan Turing", "Alan Turing fue un matemático británico"),
+        *_turn("Bodoque abre Discord", "Envié la orden a Bodoque"),
+    ]
+    selected = gate.filter("sabes algo más sobre Alan, algún dato curioso", history)
+    assert tuple(history[:2]) == selected
+
+
+def test_new_image_request_cuts_previous_research_context() -> None:
+    gate = ContextRelevanceGate()
+    history = _turn("sabes quien es Alan Turing", "Alan Turing fue un matemático británico")
+    assert gate.filter("créame una imagen de un dinosaurio", history) == ()

@@ -29,7 +29,10 @@ class ContextRelevanceGate:
         r"that one|the previous|another by|it louder|it quieter)\b"
     )
     _TOPICS = {
+        "remote_action": re.compile(r"\b(?:abre|abreme|cierra|apaga|reinicia|envia|mandame|pasame)\b.*\b(?:pc|computadora|celular|movil|discord|aplicacion|app)\b"),
         "media": re.compile(r"\b(?:cancion|musica|reproduce|ponme|artista|album|remix|spotify|youtube|play|song|music)\b"),
+        "image": re.compile(r"\b(?:crea(?:me)?|genera(?:me)?|haz(?:me)?|dibuja(?:me)?)\b.*\b(?:imagen|foto|ilustracion)\b"),
+        "research": re.compile(r"\b(?:quien es|quien fue|sabes algo|dato curioso|investiga|busca informacion|explicame sobre|hablame de)\b"),
         "translation": re.compile(r"\b(?:en ingles|en espanol|traduce|traducir|como se dice|translate|translation|english practice|practica en ingles)\b"),
         "news": re.compile(r"\b(?:noticia|noticias|hoy|ayer|actualmente|ultima|ultimo|latest|news|today|current)\b"),
         "document": re.compile(r"\b(?:pdf|documento|word|archivo|pagina|resume|docx|document|file)\b"),

@@ -673,29 +673,56 @@ function isContextFollowup(text: string): boolean {
   return /^(?:dame|dime|cuentame|explicame)(?:\s+un\s+poco)?\s+mas(?:\s+(?:contexto|detalles|informacion))?(?:\s+(?:sobre|acerca\s+de)\s+(?:el|ella|eso|esa\s+persona|ese\s+tema))?$/u.test(normalized)
     || /^(?:y\s+)?que\s+mas(?:\s+(?:sabes|puedes\s+decirme))?(?:\s+(?:de|sobre)\s+(?:el|ella|eso|esa\s+persona|ese\s+tema))?$/u.test(normalized)
     || /^(?:puedes\s+)?(?:decirme|contarme|explicarme)(?:\s+algo)?\s+mas(?:\s+(?:de|sobre|acerca\s+de)\s+(?:el|ella|eso|esto|esa\s+persona|este\s+tema|el\s+tema))?$/u.test(normalized)
+    || /^(?:sabes\s+)?(?:algo\s+)?mas\s+(?:de|sobre|acerca\s+de)\s+.{2,160}?(?:\s+algun(?:os)?\s+datos?\s+curiosos?)?$/u.test(normalized)
+    || /^(?:dime|cuentame)?\s*algun(?:os)?\s+datos?\s+curiosos?(?:\s+(?:de|sobre)\s+.{2,160})?$/u.test(normalized)
     || /^(?:continua|sigue)(?:\s+(?:con|sobre)\s+(?:eso|el\s+tema|la\s+persona))?$/u.test(normalized)
     || /^(?:mas|amplia|profundiza)(?:\s+(?:contexto|detalles|informacion))?$/u.test(normalized);
 }
 
-function contextualResearchSubject(text: string, history: any[]): string {
-  if (!isContextFollowup(text)) return "";
-  const previous = String(history.filter(item => item.role === "user" && !isContextFollowup(String(item.body || ""))).at(-1)?.body || "").trim();
-  if (!previous) return "";
-  const direct = researchSubject(previous);
-  if (direct) return direct;
-  const statement = previous.match(/^(.{2,120}?)\s+(?:es|fue|era|son|fueron|eran|se\s+trata\s+de)\b/iu);
-  return compactText(statement?.[1] || previous, 160);
+function lastResearchSubject(history: any[]): string {
+  for (const item of [...history].reverse()) {
+    if (item?.role !== "assistant") continue;
+    const body = String(item.body ?? item.content ?? "").trim();
+    if (!body.includes("Fuente consultada: [Wikipedia]")) continue;
+    const title = compactText(body.split(/\r?\n/, 1)[0] || "", 160).replace(/^Más contexto sobre\s+/iu, "");
+    if (title) return title;
+  }
+  for (const item of [...history].reverse()) {
+    if (item?.role !== "user") continue;
+    const subject = researchSubject(String(item.body ?? item.content ?? ""));
+    if (subject) return subject;
+  }
+  return "";
 }
 
-async function researchedAnswer(text: string): Promise<string | null> {
+function contextualResearchSubject(text: string, history: any[]): string {
+  if (!isContextFollowup(text)) return "";
+  const recentSubject = lastResearchSubject(history);
+  const normalized = text.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLocaleLowerCase("es").trim();
+  const explicit = normalized.match(/(?:de|sobre|acerca\s+de)\s+(.{2,160})$/u)?.[1]
+    ?.replace(/\s+algun(?:os)?\s+datos?\s+curiosos?$/u, "")
+    .replace(/^(?:el|ella|eso|esto|esa\s+persona|este\s+tema|el\s+tema)$/u, "").trim() || "";
+  if (explicit) {
+    const foldedSubject = recentSubject.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLocaleLowerCase("es");
+    if (recentSubject && (foldedSubject.includes(explicit) || explicit.includes(foldedSubject))) return recentSubject;
+    return explicit;
+  }
+  if (recentSubject) return recentSubject;
+  const previous = String(history.filter(item => item.role === "user" && !isContextFollowup(String(item.body || item.content || ""))).at(-1)?.body || "").trim();
+  const statement = previous.match(/^(.{2,120}?)\s+(?:es|fue|era|son|fueron|eran|se\s+trata\s+de)\b/iu);
+  return compactText(statement?.[1] || "", 160);
+}
+
+async function researchedAnswer(text: string, followup = false): Promise<string | null> {
   const subject = researchSubject(text);
   if (!subject) return null;
   try {
     const parameters = new URLSearchParams({
       action: "query", generator: "search", gsrsearch: subject, gsrlimit: "1",
-      prop: "extracts|info", exintro: "1", explaintext: "1", inprop: "url",
+      prop: "extracts|info", explaintext: "1", inprop: "url",
       redirects: "1", format: "json", formatversion: "2", origin: "*",
     });
+    if (!followup) parameters.set("exintro", "1");
     const response = await fetch(`https://es.wikipedia.org/w/api.php?${parameters}`, {
       headers: { "User-Agent": "ARCHEON/1.0 (independent research assistant)" },
       signal: AbortSignal.timeout(7000),
@@ -703,11 +730,18 @@ async function researchedAnswer(text: string): Promise<string | null> {
     if (!response.ok) return null;
     const value = await response.json();
     const page = value?.query?.pages?.[0];
-    const extract = compactText(String(page?.extract || "").replace(/\s+/g, " ").trim(), 1600);
+    const fullExtract = compactText(String(page?.extract || "")
+      .replace(/={2,}\s*([^=]+?)\s*={2,}/g, "$1.").replace(/\s+/g, " ").trim(), followup ? 9000 : 1600);
+    let extract = fullExtract;
+    if (followup && fullExtract.length > 2200) {
+      const offset = Math.min(fullExtract.length - 1200, 1700);
+      const boundary = fullExtract.indexOf(". ", offset);
+      extract = compactText(fullExtract.slice(boundary >= 0 ? boundary + 2 : offset), 1800);
+    }
     const title = compactText(String(page?.title || subject), 160);
     const url = String(page?.fullurl || "");
     if (!extract || !/^https:\/\//.test(url)) return null;
-    return `${title}\n\n${extract}\n\nFuente consultada: [Wikipedia](${url})`;
+    return `${followup ? `Más contexto sobre ${title}` : title}\n\n${extract}\n\nFuente consultada: [Wikipedia](${url})`;
   } catch (_) {
     return null;
   }
@@ -724,12 +758,10 @@ function nativeArchi(text: string, attachmentParts: any[], history: any[]): stri
   if (attachmentText) return `Leí el contenido adjunto. Sus puntos principales son:\n\n${extractiveSummary(attachmentText)}`;
   if (/\b(hola|buenas|buenos dias|buenas tardes|buenas noches)\b/.test(normalized)) return "Hola, soy ARCHI. Estoy funcionando desde el servicio independiente de ARCHEON; no necesito que tu PC esté encendida.";
   if (/\b(que puedes hacer|ayuda|capacidades)\b/.test(normalized)) return "Puedo mantener tus chats, trabajar con texto y archivos, reproducir música con modo DJ, usar dictado y conversación por voz, y sincronizar Cloud y dispositivos. Las acciones siempre informan su resultado real.";
+  const imageRequest = text.match(/^\s*(?:crea(?:me)?|genera(?:me)?|haz(?:me)?|dibuja(?:me)?)\s+(?:una?\s+)?(?:imagen|foto|ilustraci[oó]n)\s+(?:de|sobre|con)?\s*(.{3,1000})$/iu);
+  if (imageRequest) return `Entendí que quieres crear una imagen de “${compactText(imageRequest[1], 500)}”. Es una solicitud nueva, no una continuación del tema anterior. La generación de imágenes aún no está desplegada en el servicio móvil independiente; no voy a fingir que la creé.`;
   if (/\b(plan|pasos|organiza|organizar|lista)\b/.test(normalized)) return `Plan propuesto para “${compactText(text, 180)}”:\n\n1. Define el resultado exacto y el límite de tiempo.\n2. Reúne los datos o archivos necesarios.\n3. Divide el trabajo en una primera versión verificable.\n4. Ejecuta y comprueba cada resultado antes de continuar.\n5. Cierra con una revisión y una lista de pendientes reales.`;
-  const recent = history.filter(item => item.role === "user").at(-1);
-  const recentBody = recent?.body ?? recent?.content;
-  return recentBody
-    ? `Entiendo que continúas con “${compactText(String(recentBody), 120)}”. Sobre tu mensaje actual: ${compactText(text, 500)}. Puedo ayudarte a convertirlo en pasos, revisarlo o trabajar con un archivo concreto.`
-    : `Entendí tu solicitud: ${compactText(text, 600)}. Puedo ayudarte a estructurarla, revisarla, convertirla en pasos o trabajar con un archivo concreto.`;
+  return `Entendí tu solicitud: ${compactText(text, 600)}. Puedo ayudarte a estructurarla, revisarla, convertirla en pasos o trabajar con un archivo concreto.`;
 }
 
 async function command(req: Request, payload: any, token: string): Promise<Response> {
@@ -810,14 +842,14 @@ async function command(req: Request, payload: any, token: string): Promise<Respo
   }
   let history = Array.isArray(payload.history) ? payload.history.slice(-12).filter((item: any) => ["user", "assistant"].includes(item?.role) && typeof item?.body === "string").map((item: any) => ({ role: item.role, body: item.body.slice(0, 16000) })) : [];
   if (user && payload.conversation_id) {
-    const stored = await rest(token, "archeon_messages", `?conversation_id=eq.${encodeURIComponent(String(payload.conversation_id))}&select=role,body,created_at&order=created_at.desc&limit=13`);
+    const stored = await rest(token, "archeon_messages", `?conversation_id=eq.${encodeURIComponent(String(payload.conversation_id))}&select=role,body,created_at&order=created_at.desc&limit=25`);
     history = stored.reverse().filter((item: any) => ["user", "assistant"].includes(item?.role) && typeof item?.body === "string");
     const current = history.at(-1);
     if (current?.role === "user" && current.body.trim() === text) history.pop();
-    history = history.slice(-12);
+    history = history.slice(-24);
   }
   const followupSubject = contextualResearchSubject(text, history);
-  const researched = await researchedAnswer(followupSubject ? `investiga ${followupSubject}` : text);
+  const researched = await researchedAnswer(followupSubject ? `investiga ${followupSubject}` : text, Boolean(followupSubject));
   const answer = researched || nativeArchi(text, parts.slice(1), history);
   await Promise.allSettled(cleanup.map(path => supabase(`/storage/v1/object/archeon-cloud/${path}`, { method: "DELETE" }, "", true)));
   return reply(req, { ok: true, message: answer, engine: researched ? "archeon-native-research" : "archeon-native", intelligence: payload.intelligence || "medium", attachments_consumed: true });
