@@ -347,7 +347,28 @@ async function action(req: Request, payload: any, token: string): Promise<Respon
     }
     if (name === "cloud.messages.list") {
       const rows = await rest(token, "archeon_messages", `?select=id,role,body,created_at&conversation_id=eq.${encodeURIComponent(payload.conversation_id)}&order=created_at.asc`);
-      return reply(req, { ok: true, messages: rows });
+      const files = await rest(token, "archeon_cloud_files", `?select=id,message_id,storage_path,display_name,mime_type&conversation_id=eq.${encodeURIComponent(payload.conversation_id)}&message_id=not.is.null&state=eq.available&order=created_at.asc`);
+      const attachments = new Map<string, any[]>();
+      const visibleFiles = await Promise.all(files.map(async (file: any) => {
+        let previewUrl = "";
+        if (String(file.mime_type || "").startsWith("image/")) {
+          const signed = await supabase(`/storage/v1/object/sign/archeon-cloud/${file.storage_path}`, { method: "POST", body: JSON.stringify({ expiresIn: 600 }) }, "", true);
+          if (signed.ok) {
+            const value = await signed.json();
+            const relative = String(value.signedURL || value.signedUrl || "");
+            previewUrl = relative.startsWith("http") ? relative : relative ? `${SUPABASE_URL}/storage/v1${relative}` : "";
+          }
+        }
+        return { ...file, previewUrl };
+      }));
+      for (const file of visibleFiles) {
+        const messageId = String(file.message_id || "");
+        if (!messageId) continue;
+        const values = attachments.get(messageId) || [];
+        values.push({ id: file.id, fileId: file.id, name: file.display_name, kind: String(file.mime_type || "").startsWith("image/") ? "image" : "file", previewUrl: file.previewUrl });
+        attachments.set(messageId, values);
+      }
+      return reply(req, { ok: true, messages: rows.map((message: any) => ({ ...message, attachments: attachments.get(String(message.id)) || [] })) });
     }
     if (name === "cloud.messages.add") {
       const rows = await rest(token, "archeon_messages", "?select=id,role,body,created_at", { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify({ user_id: userId, conversation_id: payload.conversation_id, role: payload.role, body: String(payload.body || "").slice(0, 100000), client_message_id: crypto.randomUUID() }) });
@@ -356,6 +377,13 @@ async function action(req: Request, payload: any, token: string): Promise<Respon
       const nextTitle = payload.role === "user" && currentTitle === "Nuevo chat" ? conversationTitle(String(payload.body || "")) : currentTitle;
       await rest(token, "archeon_conversations", `?id=eq.${encodeURIComponent(payload.conversation_id)}`, { method: "PATCH", body: JSON.stringify({ title: nextTitle || "Nuevo chat", updated_at: new Date().toISOString() }) });
       return reply(req, { ok: true, message: rows[0], conversation_title: nextTitle || "Nuevo chat" });
+    }
+    if (name === "cloud.files.attach_message") {
+      const messageRows = await rest(token, "archeon_messages", `?id=eq.${encodeURIComponent(payload.message_id)}&select=id,conversation_id&limit=1`);
+      const fileRows = await rest(token, "archeon_cloud_files", `?id=eq.${encodeURIComponent(payload.file_id)}&state=eq.available&select=id,conversation_id&limit=1`);
+      if (!messageRows[0] || !fileRows[0] || messageRows[0].conversation_id !== fileRows[0].conversation_id) throw new Error("cloud_attachment_context_mismatch");
+      await rest(token, "archeon_cloud_files", `?id=eq.${encodeURIComponent(payload.file_id)}`, { method: "PATCH", body: JSON.stringify({ message_id: payload.message_id }) });
+      return reply(req, { ok: true });
     }
     if (name === "cloud.devices.list") {
       const installation = String(req.headers.get("x-archeon-installation") || "").slice(0, 128);
@@ -474,6 +502,82 @@ function mediaQuery(text: string): string | null {
   const match = text.match(/\b(?:reproduce|reproducir|pon|poner|play|toca|escucha)\b\s*(?:la canci[oó]n|m[uú]sica|algo de)?\s*(.+)/iu);
   if (!match || /\b(?:pc|computadora|ordenador|desktop)\b/iu.test(text)) return null;
   return match[1].trim().slice(0, 160) || null;
+}
+
+function imageCreationPrompt(text: string): string {
+  const match = text.match(/^\s*(?:crea(?:me)?|genera(?:me)?|haz(?:me)?|dibuja(?:me)?)\s+(?:una?\s+)?(?:imagen|foto|ilustraci[oó]n)\s+(?:de|sobre|con)?\s*(.{3,1000})$/iu);
+  if (!match) return "";
+  return compactText(match[1]
+    .replace(/\bvotando\s+fuego\b/giu, "escupiendo fuego")
+    .replace(/\bcsbezas\b/giu, "cabezas"), 1000);
+}
+
+function standardBase64(bytes: Uint8Array): string {
+  const encoded = base64Url(bytes);
+  return encoded.replaceAll("-", "+").replaceAll("_", "/") + "=".repeat((4 - encoded.length % 4) % 4);
+}
+
+async function generateCloudImage(req: Request, prompt: string, payload: any, token: string, user: any): Promise<Response> {
+  if (!user) return reply(req, { ok: false, error: "account_session_required", message: "Inicia sesión para crear y guardar imágenes en tu Cloud." }, 401);
+  const seed = crypto.getRandomValues(new Uint32Array(1))[0] % 2147483647;
+  const enhancedPrompt = `${prompt}. composición cinematográfica coherente, alta calidad visual, sin texto, sin marcas de agua`;
+  let generated: Response;
+  try {
+    const space = "https://black-forest-labs-flux-1-schnell.hf.space";
+    const queued = await fetch(`${space}/gradio_api/call/infer`, {
+      method: "POST", headers: { "Content-Type": "application/json", "User-Agent": "ARCHEON/1.0 image service" },
+      body: JSON.stringify({ data: [enhancedPrompt, seed, false, 1024, 1024, 4] }), signal: AbortSignal.timeout(20_000),
+    });
+    if (!queued.ok) throw new Error("image_queue_failed");
+    const eventId = String((await queued.json())?.event_id || "");
+    if (!/^[a-f0-9-]{16,80}$/i.test(eventId)) throw new Error("image_event_invalid");
+    const eventResponse = await fetch(`${space}/gradio_api/call/infer/${eventId}`, { headers: { "Accept": "text/event-stream" }, signal: AbortSignal.timeout(100_000) });
+    if (!eventResponse.ok) throw new Error("image_event_failed");
+    const eventText = await eventResponse.text();
+    const completed = eventText.match(/event:\s*complete\s*\r?\ndata:\s*([^\r\n]+)/i)?.[1];
+    const output = completed ? JSON.parse(completed) : [];
+    const imageUrl = String(output?.[0]?.url || "");
+    if (!imageUrl.startsWith(`${space}/gradio_api/file=`)) throw new Error("image_result_url_invalid");
+    generated = await fetch(imageUrl, { headers: { "Accept": "image/webp,image/png,image/jpeg" }, signal: AbortSignal.timeout(30_000) });
+  } catch (_) {
+    return reply(req, { ok: false, error: "image_generation_unavailable", message: "El generador de imágenes no respondió a tiempo. Inténtalo nuevamente." }, 503);
+  }
+  if (!generated.ok) return reply(req, { ok: false, error: "image_generation_failed", message: "El generador no pudo completar esta imagen." }, 502);
+  const bytes = new Uint8Array(await generated.arrayBuffer());
+  const contentType = String(generated.headers.get("content-type") || "").split(";")[0].toLowerCase();
+  const jpeg = bytes.length >= 4 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes.at(-2) === 0xff && bytes.at(-1) === 0xd9;
+  const png = bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47;
+  const webp = bytes.length >= 12 && decoder.decode(bytes.slice(0, 4)) === "RIFF" && decoder.decode(bytes.slice(8, 12)) === "WEBP";
+  if (bytes.length < 4096 || bytes.length > 12 * 1024 * 1024 || !(jpeg || png || webp)) {
+    return reply(req, { ok: false, error: "image_output_invalid", message: "El resultado no fue una imagen válida y no se guardó." }, 502);
+  }
+  const mime = png ? "image/png" : webp ? "image/webp" : "image/jpeg";
+  if (contentType && !contentType.startsWith("image/")) return reply(req, { ok: false, error: "image_output_invalid" }, 502);
+  const extension = png ? "png" : webp ? "webp" : "jpg";
+  const timestamp = new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14);
+  const name = `ARCHI_Image_${timestamp}.${extension}`;
+  const path = `${user.id}/${crypto.randomUUID()}/${encodeURIComponent(name)}`;
+  const stored = await supabase(`/storage/v1/object/archeon-cloud/${path}`, { method: "POST", headers: { "Content-Type": mime, "x-upsert": "false" }, body: bytes }, token);
+  if (!stored.ok) return reply(req, { ok: false, error: "cloud_upload_failed", message: "La imagen se creó, pero no pudo guardarse de forma verificada." }, 502);
+  const digest = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))).map(value => value.toString(16).padStart(2, "0")).join("");
+  const source = await ensureMobileDevice(req, token, String(user.id));
+  const rows = await rest(token, "archeon_cloud_files", "?select=id,display_name,mime_type,byte_size,sha256,state,created_at", { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify({
+    user_id: user.id, uploader_device_id: source?.id || null, conversation_id: payload.conversation_id || null,
+    storage_path: path, display_name: name, mime_type: mime, byte_size: bytes.length, sha256: digest, state: "available",
+  }) });
+  const file = rows[0];
+  if (!file) {
+    await supabase(`/storage/v1/object/archeon-cloud/${path}`, { method: "DELETE" }, token);
+    return reply(req, { ok: false, error: "cloud_metadata_failed", message: "La imagen no superó la validación de almacenamiento." }, 502);
+  }
+  return reply(req, {
+    ok: true,
+    message: "He creado la imagen y la guardé de forma verificada en ARCHEON Cloud.",
+    file,
+    generated_image: { file_id: file.id, name, mime_type: mime, content_base64: standardBase64(bytes), width: 1024, height: 1024 },
+    engine: "archeon-image",
+    attachments_consumed: true,
+  });
 }
 
 async function findOwnedMusic(token: string, query: string): Promise<any[]> {
@@ -758,8 +862,6 @@ function nativeArchi(text: string, attachmentParts: any[], history: any[]): stri
   if (attachmentText) return `Leí el contenido adjunto. Sus puntos principales son:\n\n${extractiveSummary(attachmentText)}`;
   if (/\b(hola|buenas|buenos dias|buenas tardes|buenas noches)\b/.test(normalized)) return "Hola, soy ARCHI. Estoy funcionando desde el servicio independiente de ARCHEON; no necesito que tu PC esté encendida.";
   if (/\b(que puedes hacer|ayuda|capacidades)\b/.test(normalized)) return "Puedo mantener tus chats, trabajar con texto y archivos, reproducir música con modo DJ, usar dictado y conversación por voz, y sincronizar Cloud y dispositivos. Las acciones siempre informan su resultado real.";
-  const imageRequest = text.match(/^\s*(?:crea(?:me)?|genera(?:me)?|haz(?:me)?|dibuja(?:me)?)\s+(?:una?\s+)?(?:imagen|foto|ilustraci[oó]n)\s+(?:de|sobre|con)?\s*(.{3,1000})$/iu);
-  if (imageRequest) return `Entendí que quieres crear una imagen de “${compactText(imageRequest[1], 500)}”. Es una solicitud nueva, no una continuación del tema anterior. La generación de imágenes aún no está desplegada en el servicio móvil independiente; no voy a fingir que la creé.`;
   if (/\b(plan|pasos|organiza|organizar|lista)\b/.test(normalized)) return `Plan propuesto para “${compactText(text, 180)}”:\n\n1. Define el resultado exacto y el límite de tiempo.\n2. Reúne los datos o archivos necesarios.\n3. Divide el trabajo en una primera versión verificable.\n4. Ejecuta y comprueba cada resultado antes de continuar.\n5. Cierra con una revisión y una lista de pendientes reales.`;
   return `Entendí tu solicitud: ${compactText(text, 600)}. Puedo ayudarte a estructurarla, revisarla, convertirla en pasos o trabajar con un archivo concreto.`;
 }
@@ -769,6 +871,8 @@ async function command(req: Request, payload: any, token: string): Promise<Respo
   if (!await validGuest(token) && !user) return reply(req, { ok: false, error: "session_required" }, 401);
   const text = String(payload.text ?? "").trim();
   if (!text || text.length > 16000) return reply(req, { ok: false, error: "invalid_text" }, 400);
+  const requestedImage = imageCreationPrompt(text);
+  if (requestedImage) return generateCloudImage(req, requestedImage, payload, token, user);
   if (requestsFileTransferToPc(text)) {
     if (!user) return reply(req, { ok: false, error: "account_session_required" }, 401);
     const ids = Array.isArray(payload.attachments) ? payload.attachments.slice(0, 10) : [];

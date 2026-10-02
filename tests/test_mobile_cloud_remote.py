@@ -156,8 +156,22 @@ class MobileCloudRemoteTests(unittest.TestCase):
         self.assertIn('function lastResearchSubject', source)
         self.assertIn('replace(/^Más contexto sobre\\s+/iu, "")', source)
         self.assertIn('Fuente consultada: [Wikipedia]', source)
-        self.assertIn('Es una solicitud nueva, no una continuación del tema anterior', source)
         self.assertNotIn('Entiendo que continúas con', source)
+
+    def test_mobile_image_generation_is_real_verified_and_persistent(self) -> None:
+        source = Path("supabase/functions/archeon-mobile-api/index.ts").read_text(encoding="utf-8")
+        mobile = Path("src/archeon/ui/mobile.js").read_text(encoding="utf-8")
+        self.assertIn("async function generateCloudImage", source)
+        self.assertIn("black-forest-labs-flux-1-schnell.hf.space", source)
+        self.assertIn("gradio_api/call/infer", source)
+        self.assertIn('error: "image_output_invalid"', source)
+        self.assertIn('engine: "archeon-image"', source)
+        self.assertIn('name === "cloud.files.attach_message"', source)
+        self.assertIn("content_base64: standardBase64(bytes)", source)
+        self.assertIn("result.generated_image", mobile)
+        self.assertIn("cloud.files.attach_message", mobile)
+        self.assertIn("item.fileId", mobile)
+        self.assertIn("previewUrl: file.previewUrl", source)
 
     def test_cloud_client_is_explicitly_unconfigured(self) -> None:
         client = ArcheonCloudClient("", "")
