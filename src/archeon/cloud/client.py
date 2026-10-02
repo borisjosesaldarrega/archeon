@@ -44,6 +44,8 @@ class ArcheonCloudClient:
         *,
         content_type: str = "application/json",
         prefer: str = "",
+        extra_headers: dict[str, str] | None = None,
+        timeout: float | None = None,
     ) -> Any:
         if not self.configured:
             raise ValueError("cloud_backend_not_configured")
@@ -55,9 +57,11 @@ class ArcheonCloudClient:
             headers["Content-Type"] = content_type
         if prefer:
             headers["Prefer"] = prefer
+        if extra_headers:
+            headers.update(extra_headers)
         request = Request(f"{self._url}{path}", data=body, headers=headers, method=method)
         try:
-            with urlopen(request, timeout=self._timeout) as response:
+            with urlopen(request, timeout=self._timeout if timeout is None else timeout) as response:
                 raw = response.read()
                 response_type = response.headers.get_content_type()
         except HTTPError as error:
@@ -73,6 +77,21 @@ class ArcheonCloudClient:
         if response_type == "application/json":
             return json.loads(raw.decode())
         return raw
+
+    def generate_chat_image(self, access_token: str, prompt: str) -> dict[str, Any]:
+        """Generate an image response without creating a Storage object."""
+        clean = " ".join(prompt.split()).strip()[:1000]
+        if len(clean) < 3:
+            raise ValueError("image_prompt_required")
+        value = self._request(
+            "POST", "/functions/v1/archeon-mobile-api", access_token,
+            {"text": f"crea una imagen de {clean}"},
+            extra_headers={"X-Archeon-Route": "/api/command", "X-Archeon-Session": access_token},
+            timeout=125.0,
+        )
+        if not isinstance(value, dict) or not value.get("ok") or not isinstance(value.get("generated_image"), dict):
+            raise ValueError(str(value.get("error") if isinstance(value, dict) else "image_generation_failed"))
+        return dict(value)
 
     def _rest(
         self, method: str, table: str, access_token: str, payload: Any = None, *,

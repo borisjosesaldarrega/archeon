@@ -346,7 +346,7 @@ async function action(req: Request, payload: any, token: string): Promise<Respon
       return reply(req, { ok: true });
     }
     if (name === "cloud.messages.list") {
-      const rows = await rest(token, "archeon_messages", `?select=id,role,body,created_at&conversation_id=eq.${encodeURIComponent(payload.conversation_id)}&order=created_at.asc`);
+      const rows = await rest(token, "archeon_messages", `?select=id,role,body,context_data,created_at&conversation_id=eq.${encodeURIComponent(payload.conversation_id)}&order=created_at.asc`);
       const files = await rest(token, "archeon_cloud_files", `?select=id,message_id,storage_path,display_name,mime_type&conversation_id=eq.${encodeURIComponent(payload.conversation_id)}&message_id=not.is.null&state=eq.available&order=created_at.asc`);
       const attachments = new Map<string, any[]>();
       const visibleFiles = await Promise.all(files.map(async (file: any) => {
@@ -371,7 +371,9 @@ async function action(req: Request, payload: any, token: string): Promise<Respon
       return reply(req, { ok: true, messages: rows.map((message: any) => ({ ...message, attachments: attachments.get(String(message.id)) || [] })) });
     }
     if (name === "cloud.messages.add") {
-      const rows = await rest(token, "archeon_messages", "?select=id,role,body,created_at", { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify({ user_id: userId, conversation_id: payload.conversation_id, role: payload.role, body: String(payload.body || "").slice(0, 100000), client_message_id: crypto.randomUUID() }) });
+      const suppliedContext = payload.context_data && typeof payload.context_data === "object" && !Array.isArray(payload.context_data) ? payload.context_data : {};
+      const contextData = JSON.stringify(suppliedContext).length <= 32000 ? suppliedContext : {};
+      const rows = await rest(token, "archeon_messages", "?select=id,role,body,context_data,created_at", { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify({ user_id: userId, conversation_id: payload.conversation_id, role: payload.role, body: String(payload.body || "").slice(0, 100000), context_data: contextData, client_message_id: crypto.randomUUID() }) });
       const conversations = await rest(token, "archeon_conversations", `?id=eq.${encodeURIComponent(payload.conversation_id)}&select=id,title&limit=1`);
       const currentTitle = String(conversations?.[0]?.title || "");
       const nextTitle = payload.role === "user" && currentTitle === "Nuevo chat" ? conversationTitle(String(payload.body || "")) : currentTitle;
@@ -517,8 +519,7 @@ function standardBase64(bytes: Uint8Array): string {
   return encoded.replaceAll("-", "+").replaceAll("_", "/") + "=".repeat((4 - encoded.length % 4) % 4);
 }
 
-async function generateCloudImage(req: Request, prompt: string, payload: any, token: string, user: any): Promise<Response> {
-  if (!user) return reply(req, { ok: false, error: "account_session_required", message: "Inicia sesión para crear y guardar imágenes en tu Cloud." }, 401);
+async function generateEphemeralImage(req: Request, prompt: string, context_interpretation?: unknown): Promise<Response> {
   const seed = crypto.getRandomValues(new Uint32Array(1))[0] % 2147483647;
   const enhancedPrompt = `${prompt}. composición cinematográfica coherente, alta calidad visual, sin texto, sin marcas de agua`;
   let generated: Response;
@@ -556,25 +557,12 @@ async function generateCloudImage(req: Request, prompt: string, payload: any, to
   const extension = png ? "png" : webp ? "webp" : "jpg";
   const timestamp = new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14);
   const name = `ARCHI_Image_${timestamp}.${extension}`;
-  const path = `${user.id}/${crypto.randomUUID()}/${encodeURIComponent(name)}`;
-  const stored = await supabase(`/storage/v1/object/archeon-cloud/${path}`, { method: "POST", headers: { "Content-Type": mime, "x-upsert": "false" }, body: bytes }, token);
-  if (!stored.ok) return reply(req, { ok: false, error: "cloud_upload_failed", message: "La imagen se creó, pero no pudo guardarse de forma verificada." }, 502);
   const digest = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))).map(value => value.toString(16).padStart(2, "0")).join("");
-  const source = await ensureMobileDevice(req, token, String(user.id));
-  const rows = await rest(token, "archeon_cloud_files", "?select=id,display_name,mime_type,byte_size,sha256,state,created_at", { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify({
-    user_id: user.id, uploader_device_id: source?.id || null, conversation_id: payload.conversation_id || null,
-    storage_path: path, display_name: name, mime_type: mime, byte_size: bytes.length, sha256: digest, state: "available",
-  }) });
-  const file = rows[0];
-  if (!file) {
-    await supabase(`/storage/v1/object/archeon-cloud/${path}`, { method: "DELETE" }, token);
-    return reply(req, { ok: false, error: "cloud_metadata_failed", message: "La imagen no superó la validación de almacenamiento." }, 502);
-  }
   return reply(req, {
     ok: true,
-    message: "He creado la imagen y la guardé de forma verificada en ARCHEON Cloud.",
-    file,
-    generated_image: { file_id: file.id, name, mime_type: mime, content_base64: standardBase64(bytes), width: 1024, height: 1024 },
+    message: "",
+    generated_image: { id: `ephemeral-${crypto.randomUUID()}`, name, mime_type: mime, content_base64: standardBase64(bytes), width: 1024, height: 1024, sha256: digest, ephemeral: true },
+    context_interpretation,
     engine: "archeon-image",
     attachments_consumed: true,
   });
@@ -817,6 +805,181 @@ function contextualResearchSubject(text: string, history: any[]): string {
   return compactText(statement?.[1] || "", 160);
 }
 
+type Evidence = "KNOWN" | "INFERRED" | "UNKNOWN";
+type ContextEntity = { entity_id: string; entity_type: string; name: string; aliases: string[]; attributes: Record<string, unknown>; status: Evidence; confidence: number; source: string; position: number };
+type EntityDefinition = { entity_id: string; entity_type: string; name: string; aliases: string[]; topic_hints: string[]; compatible_intents: string[]; attributes?: Record<string, unknown> };
+type IntentDefinition = { name: string; patterns: RegExp[]; compatible_types: string[]; sensitive?: boolean; implicit_active_target?: boolean };
+type TopicDefinition = { topic_id: string; name: string; concepts: string[]; compatible_intents: string[] };
+type ContextThread = { topic_id: string; messages: string[]; entities: ContextEntity[]; intents: string[]; last_turn: number };
+type ContextResult = {
+  raw_input: string; normalized_input: string; interpreted_request: string;
+  intent: { name: string; confidence: number }; topic: { id: string; confidence: number; scores: Record<string, number> };
+  entities: ContextEntity[]; references: Record<string, unknown>[]; related_topics: string[]; context_sources: string[];
+  confidence: number; requires_confirmation: boolean; requires_clarification: boolean; clarification_required: boolean;
+  resolution: "CONTINUE_ACTIVE_THREAD" | "SWITCH_TO_RECENT_THREAD" | "CREATE_NEW_THREAD" | "RELATE_MULTIPLE_THREADS";
+  facts: Array<{ key: string; value: unknown; status: Evidence; confidence: number; source: string }>;
+};
+
+const CONTEXT_TOPICS: TopicDefinition[] = [
+  { topic_id: "minecraft_server", name: "Servidor Minecraft", concepts: ["minecraft", "server", "servidor", "java", "puerto", "25565"], compatible_intents: ["diagnose", "inspect_version", "check_network_port", "restart"] },
+  { topic_id: "media_playback", name: "Música y reproducción", concepts: ["musica", "cancion", "artista", "reproduccion", "volumen"], compatible_intents: ["open", "close", "play_media", "pause_media", "adjust_volume"] },
+  { topic_id: "system_hardware", name: "Sistema y hardware", concepts: ["ram", "cpu", "gpu", "disco", "espacio", "temperatura", "memoria"], compatible_intents: ["inspect_system", "close"] },
+  { topic_id: "web_browsing", name: "Navegación web", concepts: ["navegador", "web", "pagina", "youtube"], compatible_intents: ["open", "close", "navigate"] },
+  { topic_id: "applications", name: "Aplicaciones", concepts: ["aplicacion", "programa", "proceso"], compatible_intents: ["open", "close", "restart"] },
+  { topic_id: "network_security", name: "Red y seguridad", concepts: ["red", "ip", "puerto", "router", "firewall", "cortafuegos"], compatible_intents: ["check_network_port", "diagnose"] },
+  { topic_id: "documents", name: "Archivos y documentos", concepts: ["archivo", "documento", "pdf", "carpeta", "proyecto"], compatible_intents: ["open", "close", "find", "delete"] },
+  { topic_id: "programming", name: "Programación", concepts: ["codigo", "programar", "proyecto", "python", "java", "c++"], compatible_intents: ["open", "inspect_version", "create"] },
+];
+const CONTEXT_ENTITIES: EntityDefinition[] = [
+  { entity_id: "app.spotify", entity_type: "application", name: "Spotify", aliases: ["spotify", "spoti", "espotifai"], topic_hints: ["media_playback"], compatible_intents: ["open", "close", "play_media"] },
+  { entity_id: "app.discord", entity_type: "application", name: "Discord", aliases: ["discord"], topic_hints: ["applications"], compatible_intents: ["open", "close"] },
+  { entity_id: "app.chrome", entity_type: "application", name: "Chrome", aliases: ["chrome", "google chrome"], topic_hints: ["web_browsing", "applications"], compatible_intents: ["open", "close", "navigate"] },
+  { entity_id: "app.vscode", entity_type: "application", name: "Visual Studio Code", aliases: ["visual studio code", "vscode", "el editor donde programamos"], topic_hints: ["programming", "applications"], compatible_intents: ["open", "close"] },
+  { entity_id: "service.minecraft.local", entity_type: "server", name: "Minecraft Server", aliases: ["server de minecraft", "servidor de minecraft", "minecraft", "server", "servidor"], topic_hints: ["minecraft_server"], compatible_intents: ["diagnose", "restart", "check_network_port"], attributes: { port: 25565 } },
+  { entity_id: "runtime.java", entity_type: "runtime", name: "Java", aliases: ["java"], topic_hints: ["minecraft_server", "programming"], compatible_intents: ["inspect_version", "diagnose"] },
+  { entity_id: "network.firewall", entity_type: "security_control", name: "Firewall", aliases: ["firewall", "cortafuegos"], topic_hints: ["network_security"], compatible_intents: ["diagnose"] },
+  { entity_id: "media.song.numb", entity_type: "song", name: "Numb", aliases: ["numb"], topic_hints: ["media_playback"], compatible_intents: ["play_media"] },
+  { entity_id: "media.artist.linkin_park", entity_type: "artist", name: "Linkin Park", aliases: ["linkin park", "linkin", "likin par", "likin"], topic_hints: ["media_playback"], compatible_intents: ["play_media"] },
+  { entity_id: "website.youtube", entity_type: "website", name: "YouTube", aliases: ["youtube", "you tube"], topic_hints: ["web_browsing"], compatible_intents: ["open", "navigate"] },
+  { entity_id: "hardware.ram", entity_type: "hardware", name: "RAM", aliases: ["memoria ram", "ram"], topic_hints: ["system_hardware"], compatible_intents: ["inspect_system"] },
+  { entity_id: "hardware.cpu", entity_type: "hardware", name: "CPU", aliases: ["cpu", "procesador"], topic_hints: ["system_hardware"], compatible_intents: ["inspect_system"] },
+  { entity_id: "hardware.gpu", entity_type: "hardware", name: "GPU", aliases: ["gpu", "tarjeta grafica"], topic_hints: ["system_hardware"], compatible_intents: ["inspect_system"] },
+  { entity_id: "hardware.disk", entity_type: "hardware", name: "Disco", aliases: ["disco", "almacenamiento"], topic_hints: ["system_hardware"], compatible_intents: ["inspect_system"] },
+];
+const CONTEXT_INTENTS: IntentDefinition[] = [
+  { name: "open", patterns: [/\b(?:abre|inicia|ejecuta|lanza)\b/u], compatible_types: ["application", "website", "file", "project"] },
+  { name: "close", patterns: [/\b(?:cierra|cerralo|cierralo|terminalo)\b/u], compatible_types: ["application", "process", "file"], sensitive: true },
+  { name: "play_media", patterns: [/\b(?:pon|reproduce|toca|musica|cancion)\b/u], compatible_types: ["application", "song", "artist"] },
+  { name: "pause_media", patterns: [/\b(?:pausa|pausala|deten la musica)\b/u], compatible_types: ["application", "song"], implicit_active_target: true },
+  { name: "adjust_volume", patterns: [/\b(?:sube|subele|baja|bajale|bajito|volumen|mas bajo|mas alto)\b/u], compatible_types: ["application", "song", "artist"], implicit_active_target: true },
+  { name: "inspect_version", patterns: [/\b(?:que version|version tengo|version)\b/u], compatible_types: ["runtime", "application"] },
+  { name: "check_network_port", patterns: [/\b(?:puerto|port)\b/u, /\b\d{2,5}\b/u], compatible_types: ["server", "network_port"] },
+  { name: "inspect_system", patterns: [/\b(?:cuanto|cuanta|temperatura|uso|espacio)\b/u], compatible_types: ["hardware"] },
+  { name: "diagnose", patterns: [/\b(?:no inicia|no abre|no funciona|falla|problema|esta mal|ta mal|bloqueando)\b/u], compatible_types: ["server", "runtime", "security_control", "application"] },
+  { name: "restart", patterns: [/\b(?:reinicia|reinicialo|reiniciar)\b/u], compatible_types: ["server", "application"], sensitive: true },
+  { name: "delete", patterns: [/\b(?:borra|elimina|formatea|desinstala)\b/u], compatible_types: ["file", "application"], sensitive: true },
+  { name: "find", patterns: [/\b(?:busca|encuentra|localiza)\b/u], compatible_types: ["file", "project"] },
+  { name: "create", patterns: [/\b(?:crea|genera|programa)\b/u], compatible_types: ["file", "project"] },
+];
+const CONTEXT_NORMALIZATIONS: Array<[RegExp, string]> = [[/\bespotifai\b/giu, "Spotify"], [/\bspoti\b/giu, "Spotify"], [/\blikin par\b/giu, "Linkin Park"], [/\blikin\b/giu, "Linkin Park"], [/\bcansion\b/giu, "canción"]];
+
+function contextFold(value: string): string {
+  return value.normalize("NFKD").replace(/\p{Diacritic}/gu, "").toLocaleLowerCase("es").replace(/\s+/g, " ").trim();
+}
+
+function contextEntities(value: string): ContextEntity[] {
+  const text = contextFold(value), found: ContextEntity[] = [], occupied: Array<[number, number]> = [];
+  const aliases = CONTEXT_ENTITIES.flatMap(definition => definition.aliases.map(alias => ({ alias, definition }))).sort((a, b) => b.alias.length - a.alias.length);
+  for (const { alias, definition } of aliases) {
+    const match = new RegExp(`(?<!\\w)${contextFold(alias).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?!\\w)`, "u").exec(text);
+    if (!match || occupied.some(([start, end]) => match.index < end && match.index + match[0].length > start) || found.some(item => item.entity_id === definition.entity_id)) continue;
+    const exact = contextFold(alias) === contextFold(definition.name) || alias === definition.aliases[0];
+    found.push({ entity_id: definition.entity_id, entity_type: definition.entity_type, name: definition.name, aliases: definition.aliases, attributes: definition.attributes || {}, status: exact ? "KNOWN" : "INFERRED", confidence: exact ? 1 : .9, source: "current_message", position: match.index });
+    occupied.push([match.index, match.index + match[0].length]);
+  }
+  const port = text.match(/\b(?:puerto\s*)?(\d{2,5})\b/u)?.[1];
+  if (port) found.push({ entity_id: `network.port.${port}`, entity_type: "network_port", name: `Port ${port}`, aliases: [], attributes: { port: Number(port) }, status: "KNOWN", confidence: 1, source: "current_message", position: text.indexOf(port) });
+  return found.sort((a, b) => a.position - b.position);
+}
+
+function contextIntent(value: string, entities: ContextEntity[], previous = ""): { name: string; confidence: number } {
+  const text = contextFold(value), types = new Set(entities.map(item => item.entity_type));
+  const scored = CONTEXT_INTENTS.flatMap(definition => {
+    const matches = definition.patterns.map(pattern => pattern.exec(text)).filter(Boolean) as RegExpExecArray[];
+    if (!matches.length) return [];
+    const compatibility = definition.compatible_types.some(type => types.has(type));
+    const last = Math.max(...matches.map(match => match.index)) / Math.max(1, text.length);
+    return [{ name: definition.name, confidence: Math.min(1, .78 + matches.length * .08 + (compatibility ? .08 : 0) + last * .06) }];
+  });
+  if (scored.length) return scored.sort((a, b) => b.confidence - a.confidence)[0];
+  const prior = CONTEXT_INTENTS.find(item => item.name === previous);
+  if (prior && prior.compatible_types.some(type => types.has(type))) return { name: previous, confidence: .76 };
+  return { name: "respond", confidence: .55 };
+}
+
+function topicScores(value: string, entities: ContextEntity[], intent: string, threads: Map<string, ContextThread>, turn: number): Record<string, number> {
+  const tokens = new Set(contextFold(value).match(/[a-z0-9+#]{2,}/gu) || []), scores: Record<string, number> = {};
+  for (const topic of CONTEXT_TOPICS) {
+    const overlap = topic.concepts.filter(concept => tokens.has(contextFold(concept))).length / Math.max(1, Math.min(4, tokens.size));
+    const hints = entities.filter(entity => CONTEXT_ENTITIES.find(item => item.entity_id === entity.entity_id)?.topic_hints.includes(topic.topic_id)).length;
+    scores[topic.topic_id] = overlap * .48 + Math.min(1, hints / 2) * .38 + (topic.compatible_intents.includes(intent) ? .14 : 0);
+    const thread = threads.get(topic.topic_id);
+    if (thread) {
+      const threadTokens = new Set(contextFold(thread.entities.map(item => item.name).join(" ") + " " + thread.messages.slice(-3).join(" ")).match(/[a-z0-9+#]{2,}/gu) || []);
+      const lexical = [...tokens].filter(token => threadTokens.has(token)).length / Math.max(1, Math.min(4, tokens.size));
+      const entityOverlap = entities.filter(entity => thread.entities.some(item => item.entity_id === entity.entity_id)).length / Math.max(1, entities.length);
+      const decay = Math.exp(-Math.max(0, turn - thread.last_turn) / 8);
+      scores[topic.topic_id] = Math.max(scores[topic.topic_id], scores[topic.topic_id] * .32 + lexical * .25 + entityOverlap * .24 + decay * .08 + (thread.intents.slice(-4).includes(intent) ? .07 : 0));
+    }
+  }
+  return scores;
+}
+
+function interpretContext(text: string, history: any[]): ContextResult {
+  const threads = new Map<string, ContextThread>(); let active = "general", turn = 0;
+  for (const item of history.slice(-24)) {
+    const structured = item?.context_data?.entities;
+    if (item?.role === "assistant" && Array.isArray(structured) && threads.has(active)) {
+      const thread = threads.get(active)!;
+      for (const entity of structured) if (entity?.entity_id && !thread.entities.some(existing => existing.entity_id === entity.entity_id)) thread.entities.push(entity as ContextEntity);
+      continue;
+    }
+    if (item?.role !== "user") continue;
+    const body = String(item.body ?? item.content ?? "").trim(); if (!body) continue; turn++;
+    const entities = contextEntities(body), prior = threads.get(active)?.intents.at(-1) || "", intent = contextIntent(body, entities, prior), scores = topicScores(body, entities, intent.name, threads, turn);
+    const ranked = Object.entries(scores).sort((a, b) => b[1] - a[1]); let topic = ranked[0]?.[1] >= .16 ? ranked[0][0] : active;
+    if (!threads.size && !entities.length && ranked[1] && Math.abs(ranked[0][1] - ranked[1][1]) < .025) topic = "general";
+    const thread = threads.get(topic) || { topic_id: topic, messages: [], entities: [], intents: [], last_turn: turn };
+    thread.messages = [...thread.messages.slice(-10), body]; thread.intents = [...thread.intents.slice(-7), intent.name]; thread.last_turn = turn;
+    for (const entity of entities) if (!thread.entities.some(existing => existing.entity_id === entity.entity_id)) thread.entities.push(entity);
+    thread.entities = thread.entities.slice(-24); threads.set(topic, thread); active = topic;
+  }
+  let normalized = text.normalize("NFKC").replace(/%20/giu, " ").replace(/(?<=\p{L})%(?=\p{L})/gu, " ").replace(/\s+/g, " ").trim(); for (const [pattern, replacement] of CONTEXT_NORMALIZATIONS) normalized = normalized.replace(pattern, replacement);
+  const folded = contextFold(normalized), explicit = contextEntities(normalized), initialIntent = contextIntent(normalized, explicit, threads.get(active)?.intents.at(-1) || ""), scores = topicScores(normalized, explicit, initialIntent.name, threads, turn + 1);
+  const ranked = Object.entries(scores).sort((a, b) => b[1] - a[1]); let topic = ranked[0]?.[0] || "general", best = ranked[0]?.[1] || 0;
+  if (best < .16 && threads.has(active)) { topic = active; best = .42; }
+  else if (!threads.size && !explicit.length && ranked[1] && Math.abs(best - ranked[1][1]) < .025) { topic = "general"; best = .35; }
+  const existed = threads.has(topic), previousActive = active, thread = threads.get(topic), contextList = thread?.entities || [], intent = contextIntent(normalized, explicit, thread?.intents.at(-1) || initialIntent.name);
+  let resolution: ContextResult["resolution"] = topic === previousActive ? "CONTINUE_ACTIVE_THREAD" : existed ? "SWITCH_TO_RECENT_THREAD" : "CREATE_NEW_THREAD";
+  const related = ranked.slice(1, 4).filter(([, score]) => score >= .35 && score >= best * .72).map(([id]) => id); if (related.length) resolution = "RELATE_MULTIPLE_THREADS";
+  const references: Record<string, unknown>[] = [], entities = [...explicit], sources = ["current_message"];
+  const reference = /\b(?:eso|esto|ese|esa|aquel|ahi|alli|lo de antes|lo anterior|coso|vaina|cierralo|cerralo|pausala|reinicialo)\b/u.test(folded) || /\b(?:el|la)\s+(?:primero|primera|segundo|segunda|tercero|tercera)(?=$|[?.!,])/u.test(folded) || /^(?:lo|la)$/u.test(folded);
+  const intentDef = CONTEXT_INTENTS.find(item => item.name === intent.name), candidates = contextList.filter(entity => !intentDef?.compatible_types.length || intentDef.compatible_types.includes(entity.entity_type));
+  const ordinal = folded.match(/\b(?:el|la)\s+(primero|primera|segundo|segunda|tercero|tercera)(?=$|[?.!,])/u)?.[1]; let selected: ContextEntity | undefined;
+  if (ordinal) selected = candidates[/primer/u.test(ordinal) ? 0 : /segund/u.test(ordinal) ? 1 : 2]; else if (reference && candidates.length === 1) selected = candidates[0];
+  if (selected) { const inferred = { ...selected, status: "INFERRED" as Evidence, confidence: .92, source: ordinal ? "ordinal_reference" : "compatible_entity" }; entities.push(inferred); references.push({ text, entity_id: inferred.entity_id, status: "INFERRED", confidence: .92, source: inferred.source }); sources.push("resolved_reference"); }
+  const unresolved = reference && !selected && !explicit.length; if (unresolved) references.push({ text, status: "UNKNOWN", confidence: .35, candidates: candidates.slice(0, 4).map(item => item.name) });
+  if (["inspect_version", "check_network_port", "diagnose"].includes(intent.name) && intentDef) for (const entity of [...contextList].reverse()) if (intentDef.compatible_types.includes(entity.entity_type) && !entities.some(item => item.entity_id === entity.entity_id)) entities.push({ ...entity, status: "INFERRED", confidence: .9, source: "topic_thread" });
+  let interpreted = normalized; const byType = (kind: string) => entities.find(item => item.entity_type === kind), target = byType("application") || byType("server") || byType("website") || byType("file");
+  if (intent.name === "open" && target && entities.filter(item => ["application", "website", "file", "project"].includes(item.entity_type)).length === 1) interpreted = `abre ${target.name}`;
+  else if (intent.name === "close" && target) interpreted = `cierra ${target.name}`;
+  else if (intent.name === "restart" && target) interpreted = `reinicia ${target.name}`;
+  else if (intent.name === "play_media") { const song = byType("song"), artist = byType("artist"), app = byType("application"); if (song || artist) { const detail = song?.name || `música de ${artist!.name}`; interpreted = `reproduce ${detail}${app ? ` en ${app.name}` : ""}`; } }
+  else if (intent.name === "pause_media") interpreted = "pausa la reproducción actual";
+  else if (intent.name === "adjust_volume") interpreted = `${/\b(?:baja|bajale|bajito|mas bajo)\b/u.test(folded) ? "baja" : "sube"} un poco el volumen de la reproducción actual`;
+  else if (intent.name === "inspect_version" && (byType("runtime") || byType("application"))) interpreted = `consulta la versión de ${(byType("runtime") || byType("application"))!.name}`;
+  else if (intent.name === "check_network_port" && byType("server")) interpreted = `revisa el puerto ${String(byType("server")!.attributes.port || "")} de ${byType("server")!.name}`.replace("puerto  de", "puerto de");
+  if (interpreted !== normalized) sources.push("structured_reconstruction");
+  if (/^(?:desde ayer|desde anoche|hace rato|otra vez|nuevamente)$/u.test(folded) && thread?.messages.length) { interpreted = `${thread.messages.at(-1)} ${normalized}`; sources.push("incomplete_continuation"); }
+  if (resolution === "SWITCH_TO_RECENT_THREAD") sources.push("reactivated_thread"); if (related.length) sources.push("related_threads");
+  const second = ranked[1]?.[1] || 0, topicConfidence = Math.min(.99, .58 + best * .42 + Math.max(0, best - second) * .22), confidence = unresolved ? .42 : Math.min(intent.confidence, topicConfidence, selected?.confidence || 1);
+  const sensitive = Boolean(intentDef?.sensitive), clarification = unresolved && !intentDef?.implicit_active_target && (sensitive || confidence < .6), confirmation = sensitive && (unresolved || confidence < .6);
+  const facts = [{ key: "resolved_topic", value: topic, status: (resolution === "CONTINUE_ACTIVE_THREAD" ? "KNOWN" : "INFERRED") as Evidence, confidence: topicConfidence, source: "topic_scores" }, ...entities.map(entity => ({ key: `entity:${entity.entity_id}`, value: entity.name, status: entity.status, confidence: entity.confidence, source: entity.source }))];
+  return { raw_input: text, normalized_input: normalized, interpreted_request: interpreted, intent, topic: { id: topic, confidence: topicConfidence, scores }, entities, references, related_topics: related, context_sources: [...new Set(sources)], confidence, requires_confirmation: confirmation, requires_clarification: clarification, clarification_required: clarification, resolution, facts };
+}
+
+async function conversationHistory(payload: any, token: string, user: any, text: string): Promise<any[]> {
+  let history = Array.isArray(payload.history) ? payload.history.slice(-12).filter((item: any) => ["user", "assistant"].includes(item?.role) && typeof item?.body === "string").map((item: any) => ({ role: item.role, body: item.body.slice(0, 16000), context_data: item.context_data && typeof item.context_data === "object" && !Array.isArray(item.context_data) ? item.context_data : {} })) : [];
+  if (user && payload.conversation_id) {
+    const stored = await rest(token, "archeon_messages", `?conversation_id=eq.${encodeURIComponent(String(payload.conversation_id))}&select=role,body,context_data,created_at&order=created_at.desc&limit=25`);
+    history = stored.reverse().filter((item: any) => ["user", "assistant"].includes(item?.role) && typeof item?.body === "string");
+    const current = history.at(-1);
+    if (current?.role === "user" && current.body.trim() === text) history.pop();
+    history = history.slice(-24);
+  }
+  return history;
+}
+
 async function researchedAnswer(text: string, followup = false): Promise<string | null> {
   const subject = researchSubject(text);
   if (!subject) return null;
@@ -851,7 +1014,27 @@ async function researchedAnswer(text: string, followup = false): Promise<string 
   }
 }
 
-function nativeArchi(text: string, attachmentParts: any[], history: any[]): string {
+function contextualAnswer(context: ContextResult): string | null {
+  const intent = context.intent.name, entities = context.entities;
+  const byType = (type: string) => entities.find(item => item.entity_type === type);
+  const server = byType("server"), runtime = byType("runtime"), port = byType("network_port")?.attributes.port || server?.attributes.port;
+  if (intent === "diagnose" && server && runtime) return `Sí, puede ser ${runtime.name}. Revisaría primero qué versión tienes instalada, cuál requiere ${server.name} y el log exacto del arranque.`;
+  if (intent === "diagnose" && server) return `Vamos a revisar por qué no inicia ${server.name}. Primero comprobaría el entorno, la configuración${port ? `, el puerto ${port}` : ""} y el log de arranque.`;
+  if (intent === "check_network_port" && server) return `Sí, también conviene revisar el puerto ${port || "configurado"} y confirmar que ${server.name} realmente esté escuchando en él.`;
+  if (intent === "inspect_version" && (runtime || byType("application"))) return `Puedo comprobar la versión de ${(runtime || byType("application"))!.name} y compararla con la que necesita el hilo actual.`;
+  if (intent === "inspect_system" && byType("hardware")) return `Puedo comprobar ${byType("hardware")!.name} en este dispositivo y relacionarlo con lo que estábamos revisando.`;
+  if (context.confidence < .85 && entities.length === 1) return `Si te refieres a ${entities[0].name}, puedo revisar primero su estado y los errores más recientes.`;
+  return null;
+}
+
+function clarificationAnswer(context: ContextResult): string {
+  const candidates = context.references.flatMap(reference => Array.isArray(reference.candidates) ? reference.candidates : []).filter(Boolean).slice(0, 4);
+  if (candidates.length > 1) return `¿Te refieres a ${candidates.slice(0, -1).join(", ")} o ${candidates.at(-1)}?`;
+  if (candidates.length === 1) return `¿Te refieres a ${candidates[0]}?`;
+  return "Necesito saber una cosa antes: ¿qué elemento exacto quieres que revise o use?";
+}
+
+function nativeArchi(text: string, attachmentParts: any[], history: any[], context: ContextResult): string {
   const normalized = text.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLocaleLowerCase("es");
   const calculation = arithmetic(text);
   if (calculation !== null) return `El resultado es ${Number.isInteger(calculation) ? calculation : Number(calculation.toFixed(8))}.`;
@@ -863,7 +1046,7 @@ function nativeArchi(text: string, attachmentParts: any[], history: any[]): stri
   if (/\b(hola|buenas|buenos dias|buenas tardes|buenas noches)\b/.test(normalized)) return "Hola, soy ARCHI. Estoy funcionando desde el servicio independiente de ARCHEON; no necesito que tu PC esté encendida.";
   if (/\b(que puedes hacer|ayuda|capacidades)\b/.test(normalized)) return "Puedo mantener tus chats, trabajar con texto y archivos, reproducir música con modo DJ, usar dictado y conversación por voz, y sincronizar Cloud y dispositivos. Las acciones siempre informan su resultado real.";
   if (/\b(plan|pasos|organiza|organizar|lista)\b/.test(normalized)) return `Plan propuesto para “${compactText(text, 180)}”:\n\n1. Define el resultado exacto y el límite de tiempo.\n2. Reúne los datos o archivos necesarios.\n3. Divide el trabajo en una primera versión verificable.\n4. Ejecuta y comprueba cada resultado antes de continuar.\n5. Cierra con una revisión y una lista de pendientes reales.`;
-  return `Entendí tu solicitud: ${compactText(text, 600)}. Puedo ayudarte a estructurarla, revisarla, convertirla en pasos o trabajar con un archivo concreto.`;
+  return contextualAnswer(context) || "Necesito un poco más de detalle: ¿qué quieres que revise o haga?";
 }
 
 async function command(req: Request, payload: any, token: string): Promise<Response> {
@@ -871,18 +1054,22 @@ async function command(req: Request, payload: any, token: string): Promise<Respo
   if (!await validGuest(token) && !user) return reply(req, { ok: false, error: "session_required" }, 401);
   const text = String(payload.text ?? "").trim();
   if (!text || text.length > 16000) return reply(req, { ok: false, error: "invalid_text" }, 400);
-  const requestedImage = imageCreationPrompt(text);
-  if (requestedImage) return generateCloudImage(req, requestedImage, payload, token, user);
-  if (requestsFileTransferToPc(text)) {
+  const history = await conversationHistory(payload, token, user, text);
+  const context = interpretContext(text, history);
+  if (context.clarification_required || context.requires_confirmation) return reply(req, { ok: true, message: clarificationAnswer(context), context_interpretation: context, attachments_consumed: true });
+  const effectiveText = context.interpreted_request;
+  const requestedImage = imageCreationPrompt(effectiveText);
+  if (requestedImage) return generateEphemeralImage(req, requestedImage, context);
+  if (requestsFileTransferToPc(effectiveText)) {
     if (!user) return reply(req, { ok: false, error: "account_session_required" }, 401);
     const ids = Array.isArray(payload.attachments) ? payload.attachments.slice(0, 10) : [];
     if (!ids.length) return reply(req, { ok: false, error: "attachment_required", message: "Adjunta el archivo exacto que quieres enviar a la PC." }, 400);
     const source = await ensureMobileDevice(req, token, String(user.id));
     const files = (await Promise.all(ids.map((id: any) => persistAttachmentToCloud(String(id), token, String(user.id), source?.id || null)))).filter(Boolean);
     if (!files.length) return reply(req, { ok: false, error: "cloud_upload_failed" }, 400);
-    return reply(req, { ok: true, message: `Envié ${files.length === 1 ? files[0].display_name : `${files.length} archivos`} a ARCHEON Cloud; ya ${files.length === 1 ? "está" : "están"} disponible${files.length === 1 ? "" : "s"} en tu PC.`, files, attachments_consumed: true });
+    return reply(req, { ok: true, message: `Envié ${files.length === 1 ? files[0].display_name : `${files.length} archivos`} a ARCHEON Cloud; ya ${files.length === 1 ? "está" : "están"} disponible${files.length === 1 ? "" : "s"} en tu PC.`, files, context_interpretation: context, attachments_consumed: true });
   }
-  const remoteFile = remoteFileIntent(text);
+  const remoteFile = remoteFileIntent(effectiveText);
   if (remoteFile) {
     if (!user) return reply(req, { ok: false, error: "account_session_required" }, 401);
     const source = await ensureMobileDevice(req, token, String(user.id));
@@ -901,7 +1088,7 @@ async function command(req: Request, payload: any, token: string): Promise<Respo
     const completed = await waitForRemoteResult(token, id);
     if (completed?.state === "succeeded" && completed.result?.file) {
       const file = completed.result.file;
-      return reply(req, { ok: true, message: `${target.display_name} encontró y envió ${file.display_name} a tu ARCHEON Cloud.`, file, remote_command: { id, action: "file.send", state: "succeeded" }, attachments_consumed: true });
+      return reply(req, { ok: true, message: `${target.display_name} encontró y envió ${file.display_name} a tu ARCHEON Cloud.`, file, remote_command: { id, action: "file.send", state: "succeeded" }, context_interpretation: context, attachments_consumed: true });
     }
     if (completed && completed.state !== "succeeded") {
       const messages: Record<string, string> = {
@@ -913,9 +1100,9 @@ async function command(req: Request, payload: any, token: string): Promise<Respo
       const error = String(completed.error_code || "remote_file_failed");
       return reply(req, { ok: false, error, message: messages[error] || `${target.display_name} no pudo enviar ${query}.`, remote_command: { id, action: "file.send", state: completed.state } }, 400);
     }
-    return reply(req, { ok: true, message: `${target.display_name} sigue buscando ${query}. Te aparecerá en Cloud cuando termine.`, remote_command: { id, action: "file.send", state: "queued" }, attachments_consumed: true });
+    return reply(req, { ok: true, message: `${target.display_name} sigue buscando ${query}. Te aparecerá en Cloud cuando termine.`, remote_command: { id, action: "file.send", state: "queued" }, context_interpretation: context, attachments_consumed: true });
   }
-  const remote = desktopRemoteIntent(text);
+  const remote = desktopRemoteIntent(effectiveText);
   if (remote) {
     if (!user) return reply(req, { ok: false, error: "account_session_required" }, 401);
     const source = await ensureMobileDevice(req, token, String(user.id));
@@ -928,14 +1115,14 @@ async function command(req: Request, payload: any, token: string): Promise<Respo
     const id = crypto.randomUUID(), idempotency = crypto.randomUUID(), nonce = crypto.randomUUID().replaceAll("-", ""), expires = new Date(Date.now() + 120_000).toISOString();
     const signature = await hmac(JSON.stringify({ id, user_id: user.id, source_device_id: source.id, target_device_id: target.id, action: remote.action, query: remote.query, idempotency, nonce, expires }));
     const rows = await rest(token, "archeon_remote_commands", "?select=id,state", { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify({ id, user_id: user.id, source_device_id: source.id, target_device_id: target.id, action: remote.action, arguments: { query: remote.query }, risk: "standard", state: "queued", idempotency_key: idempotency, nonce, signature, expires_at: expires }) });
-    return reply(req, { ok: true, message: `Envié la orden a ${target.display_name}.`, remote_command: rows[0], attachments_consumed: true });
+    return reply(req, { ok: true, message: `Envié la orden a ${target.display_name}.`, remote_command: rows[0], context_interpretation: context, attachments_consumed: true });
   }
-  const music = mediaQuery(text);
+  const music = mediaQuery(effectiveText);
   if (music) {
     const owned = await findOwnedMusic(token, music);
     const queue = owned.length ? owned : await findMusic(music);
     if (queue.length) {
-      return reply(req, { ok: true, message: `Reproduciendo ${queue[0].title} de ${queue[0].artist}.`, media: { track: queue[0], queue }, attachments_consumed: true });
+      return reply(req, { ok: true, message: `Reproduciendo ${queue[0].title} de ${queue[0].artist}.`, media: { track: queue[0], queue }, context_interpretation: context, attachments_consumed: true });
     }
   }
   const parts: any[] = [{ type: "text", text }];
@@ -944,19 +1131,11 @@ async function command(req: Request, payload: any, token: string): Promise<Respo
     const attachment = await readAttachment(String(id));
     if (attachment) { parts.push(attachment.content); cleanup.push(attachment.path); }
   }
-  let history = Array.isArray(payload.history) ? payload.history.slice(-12).filter((item: any) => ["user", "assistant"].includes(item?.role) && typeof item?.body === "string").map((item: any) => ({ role: item.role, body: item.body.slice(0, 16000) })) : [];
-  if (user && payload.conversation_id) {
-    const stored = await rest(token, "archeon_messages", `?conversation_id=eq.${encodeURIComponent(String(payload.conversation_id))}&select=role,body,created_at&order=created_at.desc&limit=25`);
-    history = stored.reverse().filter((item: any) => ["user", "assistant"].includes(item?.role) && typeof item?.body === "string");
-    const current = history.at(-1);
-    if (current?.role === "user" && current.body.trim() === text) history.pop();
-    history = history.slice(-24);
-  }
-  const followupSubject = contextualResearchSubject(text, history);
-  const researched = await researchedAnswer(followupSubject ? `investiga ${followupSubject}` : text, Boolean(followupSubject));
-  const answer = researched || nativeArchi(text, parts.slice(1), history);
+  const followupSubject = contextualResearchSubject(effectiveText, history);
+  const researched = await researchedAnswer(followupSubject ? `investiga ${followupSubject}` : effectiveText, Boolean(followupSubject));
+  const answer = researched || nativeArchi(effectiveText, parts.slice(1), history, context);
   await Promise.allSettled(cleanup.map(path => supabase(`/storage/v1/object/archeon-cloud/${path}`, { method: "DELETE" }, "", true)));
-  return reply(req, { ok: true, message: answer, engine: researched ? "archeon-native-research" : "archeon-native", intelligence: payload.intelligence || "medium", attachments_consumed: true });
+  return reply(req, { ok: true, message: answer, context_interpretation: context, engine: researched ? "archeon-native-research" : "archeon-native", intelligence: payload.intelligence || "medium", attachments_consumed: true });
 }
 
 async function cloudUpload(req: Request, token: string): Promise<Response> {

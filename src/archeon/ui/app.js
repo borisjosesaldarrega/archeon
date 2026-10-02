@@ -72,6 +72,11 @@
       action("Otra versión",()=>{commandInput.value=`crea otra versión en ${item.format}`;commandInput.focus();});action("Editar",()=>{commandInput.value="edita ese documento: ";commandInput.focus();});action("Convertir",()=>{commandInput.value=`convierte ese documento a ${item.format==="pdf"?"Word":"PDF"}`;commandInput.focus();});card.append(copy,actions);host.append(card);
     });
   }
+  function renderGeneratedImage(item){
+    if(!item?.content_base64||!String(item.mime_type||"").startsWith("image/"))return;
+    const host=document.getElementById("artifact-previews"),card=document.createElement("figure"),image=document.createElement("img"),footer=document.createElement("figcaption"),caption=document.createElement("span"),download=document.createElement("button");
+    card.className="generated-image-preview";image.src=`data:${item.mime_type};base64,${item.content_base64}`;image.alt=item.name||"Imagen generada por ARCHI";caption.hidden=true;download.type="button";download.textContent="↓";download.setAttribute("aria-label","Descargar imagen");download.title="Descargar";download.onclick=()=>{const link=document.createElement("a");link.href=image.src;link.download=item.name||"ARCHI_Image.webp";link.click();};footer.append(caption,download);card.append(image,footer);host.prepend(card);
+  }
   async function uploadAttachment(file){
     if(requestAttachments.length>=10){showNotice("Máximo 10 archivos por solicitud.","error");return;}
     if(!file.size||file.size>512*1024*1024){showNotice(`${file.name}: tamaño no permitido.`,"error");return;}
@@ -790,7 +795,7 @@
     document.getElementById("context-reply").hidden=false;document.getElementById("context-user").textContent=text;result.textContent="";
     input.value="";input.style.height="";
     commandStartedAt=performance.now();firstVisibleReported=false;input.disabled=true; setState("thinking","state.thinking_detail");
-    try { const response=await fetch("/api/command",{method:"POST",headers:headers(),body:JSON.stringify({text,attachments:requestAttachments.map(item=>item.id)})}); const value=await response.json(); if(!response.ok||!value.ok){const message=value.message||messages[`error.${value.error}`]||"No pude procesar esa solicitud.";showNotice(message,"error");showMascotError(message);setState("error","state.error_detail");return;} renderAssistantText(result,value.message);renderArtifactPreviews(value.data?.artifacts||[]);reportFirstVisible(value.correlation_id,"first_visible_response");if(value.attachments_consumed){requestAttachments.forEach(item=>{if(item.preview_url)URL.revokeObjectURL(item.preview_url);});requestAttachments.splice(0);renderAttachments();} }
+    try { const response=await fetch("/api/command",{method:"POST",headers:headers(),body:JSON.stringify({text,attachments:requestAttachments.map(item=>item.id)})}); const value=await response.json(); if(!response.ok||!value.ok){const message=value.message||messages[`error.${value.error}`]||"No pude procesar esa solicitud.";showNotice(message,"error");showMascotError(message);setState("error","state.error_detail");return;} renderAssistantText(result,value.message);if(value.data?.generated_image)result.replaceChildren();renderArtifactPreviews(value.data?.artifacts||[]);renderGeneratedImage(value.data?.generated_image);reportFirstVisible(value.correlation_id,"first_visible_response");if(value.attachments_consumed){requestAttachments.forEach(item=>{if(item.preview_url)URL.revokeObjectURL(item.preview_url);});requestAttachments.splice(0);renderAttachments();} }
     catch(_error){const message="ARCHEON perdió la conexión local. Puedes editar y reenviar desde el mensaje anterior.";showNotice(message,"error",true);showMascotError(message);setState("error","state.error_detail");}
     finally{input.disabled=false;input.focus();setState("idle","state.ready");}
   });

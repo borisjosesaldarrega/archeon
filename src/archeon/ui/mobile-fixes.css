@@ -653,6 +653,54 @@ body.has-mobile-background {
   font-size: 12px;
 }
 
+.message.assistant:has(.generated-image) {
+  width: min(94%, 720px);
+  max-width: min(94%, 720px);
+}
+
+.message.generated-image-message .message-speaker,
+.message.generated-image-message .message-body {
+  display: none;
+}
+
+.message-attachment.generated-image {
+  position: relative;
+  display: block;
+  width: 100%;
+  gap: 8px;
+  padding: 6px;
+}
+
+.message-attachment.generated-image img {
+  grid-column: 1 / -1;
+  width: 100%;
+  height: auto;
+  max-height: min(68vh, 720px);
+  object-fit: contain;
+  border-radius: 12px;
+}
+
+.message-attachment.generated-image > span:last-of-type {
+  align-self: center;
+  padding-left: 5px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.generated-image-download {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  border: 1px solid var(--accent);
+  border-radius: 9px;
+  background: rgba(0, 232, 255, .08);
+  color: var(--accent);
+  font-size: 24px;
+}
+
 .mobile-media-player {
   position: relative;
   z-index: 2;

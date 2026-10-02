@@ -18,7 +18,7 @@ from uuid import uuid4
 from archeon.audio import AudioManager
 from archeon.agent import AgentMode, AgentRunner, AgentStep, AgentTask, AgentToolsEngine, CapabilityRouter, TaskContext, TaskContextStore, TaskStore
 from archeon.auth import AuthManager, SupabaseAuthProvider, UnconfiguredAuthProvider, WindowsDpapiSessionVault
-from archeon.context import AttachmentStore, FileTypeRouter, UserRequestContext
+from archeon.context import AttachmentStore, ConversationContextManager, FileTypeRouter, UserRequestContext
 from archeon.core.config import ConfigurationManager
 from archeon.core.knowledge import KnowledgeRouter
 from archeon.core.paths import AppPaths, ResourceManager
@@ -95,6 +95,7 @@ class ArcheonApplication:
             WindowsDpapiSessionVault(self.paths.secure_dir / "speaker-profiles.dpapi")
         )
         self.language_repair = NaturalLanguageRepair()
+        self.conversation_contexts = ConversationContextManager()
         self.negation_scope = NegationScopeResolver()
         self.language_context = LanguageContextEngine()
         self.knowledge_router = KnowledgeRouter()
@@ -615,6 +616,22 @@ class ArcheonApplication:
                 requested_name = " ".join(requested_name.split()).strip(" .")
         if len(prompt) < 3:
             return {"ok": False, "message": "Dime qué imagen quieres crear.", "data": {"route": "archi_image"}, "correlation_id": None}
+        if location is None:
+            credentials = self.auth.active_cloud_identity()
+            if credentials is not None and self.cloud.configured:
+                _identity, access_token = credentials
+                try:
+                    response = self.cloud.generate_chat_image(access_token, prompt)
+                except (OSError, TimeoutError, ValueError):
+                    response = {}
+                generated = response.get("generated_image") if isinstance(response, dict) else None
+                if isinstance(generated, dict):
+                    return {
+                        "ok": True,
+                        "message": str(response.get("message") or "He creado la imagen temporal."),
+                        "data": {"route": "archi_image", "generated_image": generated, "ephemeral": True},
+                        "correlation_id": None,
+                    }
         output_dir.mkdir(parents=True, exist_ok=True)
         filename = requested_name or f"ARCHI_Image_{datetime.now():%Y%m%d_%H%M%S}_{uuid4().hex[:6]}"
         if not filename.casefold().endswith(".png"):
@@ -699,9 +716,6 @@ class ArcheonApplication:
         listening_control = self._listening_control(context.text)
         if listening_control is not None:
             return listening_control
-        remote_command = self._queue_remote_mobile_command(context.text)
-        if remote_command is not None:
-            return remote_command
         correlation_id = uuid4().hex
         language = self.language_context.decide(
             context.text,
@@ -714,6 +728,30 @@ class ArcheonApplication:
             context.text, context=self._task_context,
             known_files=(item.path for item in context.attachments),
         )
+        context_interpreter = self.conversation_contexts.for_conversation(context.conversation_id)
+        # Session topic threads are isolated by conversation.  Only entities
+        # attached to this request enter that state automatically; the broader
+        # TaskContext remains operational/persistent memory, not chat history.
+        request_entities: list[dict[str, Any]] = []
+        request_entities.extend(
+            {
+                "entity_id": f"attachment.{item.id}",
+                "entity_type": "file",
+                "name": item.name,
+                "attributes": {"attachment_id": item.id},
+            }
+            for item in context.attachments
+        )
+        contextual = context_interpreter.interpret(
+            context.text,
+            normalized_input=interpretation.repaired_text,
+            known_entities=request_entities,
+        )
+        self.logger.debug(
+            "context.interpreted topic=%s intent=%s confidence=%.3f evidence=%s sources=%s",
+            contextual.topic.get("id"), contextual.intent.get("name"), contextual.confidence,
+            contextual.evidence, ",".join(contextual.context_source),
+        )
         style_profile = self.writing_style.resolve(
             context.text, learned=self._task_context.learned_writing_preferences(),
         )
@@ -724,14 +762,27 @@ class ArcheonApplication:
             self._task_context.remember_writing_feedback("avoid_generic_conclusion")
         if "menos formal" in lowered:
             self._task_context.remember_writing_feedback("less_formal")
-        if interpretation.clarification_required:
+        if interpretation.clarification_required or contextual.clarification_required or contextual.requires_confirmation:
+            candidates = [
+                str(candidate)
+                for reference in contextual.references
+                for candidate in (reference.get("candidates") if isinstance(reference.get("candidates"), list) else [])
+                if str(candidate).strip()
+            ][:4]
+            if len(candidates) > 1:
+                clarification_message = f"¿Te refieres a {', '.join(candidates[:-1])} o {candidates[-1]}?"
+            elif candidates:
+                clarification_message = f"¿Te refieres a {candidates[0]}?"
+            else:
+                clarification_message = "Necesito saber una cosa antes: ¿qué elemento exacto quieres que revise o use?"
             return {
                 "ok": True,
-                "message": "La referencia no es suficientemente clara para actuar con seguridad. ¿Qué archivo exacto quieres usar?",
+                "message": clarification_message,
                 "data": {
                     "route": "natural_language_clarification",
                     "raw_user_input": context.text,
                     "interpreted_intent": interpretation.public(),
+                    "context_interpretation": contextual.public(),
                     "writing_style": style_profile.public(),
                 },
                 "correlation_id": correlation_id,
@@ -742,11 +793,17 @@ class ArcheonApplication:
             context_tags=("attachments",) if context.attachments else (),
         )
         routed_context = UserRequestContext(
-            text=(learned.replacement_text if learned and learned.replacement_text else interpretation.repaired_text),
+            text=(learned.replacement_text if learned and learned.replacement_text else contextual.interpreted_request),
             attachments=context.attachments,
             intent_override=learned.correct_intent if learned else None,
             operational_learning_id=learned.id if learned else None,
+            conversation_id=context.conversation_id,
         )
+        remote_command = self._queue_remote_mobile_command(routed_context.text)
+        if remote_command is not None:
+            remote_command.setdefault("data", {})["context_interpretation"] = contextual.public()
+            remote_command["data"]["conversation_state"] = context_interpreter.snapshot()
+            return remote_command
         capability_route = self.capability_router.route(
             routed_context.text, attachment_names=(item.name for item in context.attachments),
         )
@@ -777,6 +834,14 @@ class ArcheonApplication:
         result["data"]["detected_language"] = language.detected_language
         result["data"]["raw_user_input"] = context.text
         result["data"]["interpreted_intent"] = interpretation.public()
+        result["data"]["context_interpretation"] = contextual.public()
+        structured_entities = result["data"].get("entities")
+        if isinstance(structured_entities, list):
+            context_interpreter.observe_entities(
+                (item for item in structured_entities if isinstance(item, dict)),
+                source="tool_result",
+            )
+        result["data"]["conversation_state"] = context_interpreter.snapshot()
         result["data"]["writing_style"] = style_profile.public()
         if learned:
             result["data"]["operational_learning"] = {
@@ -792,13 +857,18 @@ class ArcheonApplication:
         self.task_context_store.save(self._task_context)
         return result
 
-    def handle_request(self, text: str, attachment_ids: list[str] | None = None) -> dict[str, Any]:
+    def handle_request(
+        self,
+        text: str,
+        attachment_ids: list[str] | None = None,
+        conversation_id: str = "desktop-default",
+    ) -> dict[str, Any]:
         identifiers = attachment_ids or []
         try:
             records = self.attachments.resolve(identifiers)
         except ValueError as error:
             return {"ok": False, "message": "No pude preparar los archivos adjuntos.", "error": str(error)}
-        context = UserRequestContext(text=text, attachments=records)
+        context = UserRequestContext(text=text, attachments=records, conversation_id=conversation_id)
         result = self._process_request_context(context)
         result["request_context"] = context.public()
         consumed = bool(result.get("ok"))

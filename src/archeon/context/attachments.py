@@ -78,6 +78,7 @@ class UserRequestContext:
     attachments: tuple[AttachmentRecord, ...] = ()
     intent_override: str | None = None
     operational_learning_id: str | None = None
+    conversation_id: str = "desktop-default"
 
     def public(self) -> dict[str, object]:
         return {
@@ -85,6 +86,7 @@ class UserRequestContext:
             "attachments": [item.public() for item in self.attachments],
             "intent_override": self.intent_override,
             "operational_learning_id": self.operational_learning_id,
+            "conversation_id": self.conversation_id,
         }
 
 
