@@ -1065,18 +1065,21 @@ async function conversationHistory(payload: any, token: string, user: any, text:
 type ResearchAnswer = { message: string; details?: string; source_label?: string; source_url?: string };
 
 function briefResearchExtract(value: string): string {
-  const sentences = value.split(/(?<=[.!?])\s+/u).filter(Boolean);
+  const clean = value.replace(/[\u200B-\u200D\u2060\uFEFF]/gu, "").replace(/\s+/g, " ").trim();
+  const sentences = clean.match(/[^.!?]+[.!?]+(?:["»”')\]]+)?|[^.!?]+$/gu)?.map(sentence => sentence.trim()).filter(Boolean) || [];
   let brief = "";
   for (const sentence of sentences.slice(0, 3)) {
     const candidate = [brief, sentence].filter(Boolean).join(" ");
-    if (brief && candidate.length > 170) break;
+    if (brief && candidate.length > 190) break;
     brief = candidate;
   }
-  if (!brief) brief = value;
-  const compact = brief.replace(/\s+/g, " ").trim();
-  if (compact.length <= 190) return compact;
-  const clipped = compact.slice(0, 187).replace(/\s+\S*$/u, "").trim();
-  return `${clipped || compact.slice(0, 187).trim()}…`;
+  return brief || clean;
+}
+
+function researchContinuation(fullExtract: string, brief: string): string {
+  const full = fullExtract.replace(/[\u200B-\u200D\u2060\uFEFF]/gu, "").replace(/\s+/g, " ").trim();
+  if (!brief || !full.startsWith(brief)) return full;
+  return full.slice(brief.length).trim();
 }
 
 async function researchedAnswer(text: string, followup = false): Promise<ResearchAnswer | null> {
@@ -1109,9 +1112,10 @@ async function researchedAnswer(text: string, followup = false): Promise<Researc
     if (!extract || !/^https:\/\//.test(url)) return null;
     if (followup) return { message: `${extract}\n\nFuente: [Wikipedia](${url})` };
     const brief = briefResearchExtract(fullExtract);
+    const continuation = researchContinuation(fullExtract, brief);
     return {
       message: brief,
-      ...(fullExtract.length > brief.length + 80 ? { details: fullExtract, source_label: "Wikipedia", source_url: url } : {}),
+      ...(continuation.length > 40 ? { details: continuation, source_label: "Wikipedia", source_url: url } : {}),
     };
   } catch (_) {
     return null;
