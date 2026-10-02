@@ -7,6 +7,7 @@ transport layer; these methods provide the same deterministic REST contract.
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import mimetypes
@@ -105,13 +106,18 @@ class ArcheonCloudClient:
         display_name: str, platform: str, public_key: str, capabilities: list[str],
         remote_control_enabled: bool = False, file_access_enabled: bool = True,
     ) -> dict[str, Any]:
+        session_id = self._jwt_session_id(access_token)
+        if not session_id:
+            raise ValueError("session_id_required")
         existing = self._rest(
             "GET", "archeon_devices", access_token,
             query={
-                "select": "id,display_name", "user_id": f"eq.{user_id}",
+                "select": "id,display_name,auth_session_id,session_revoked_at", "user_id": f"eq.{user_id}",
                 "installation_id": f"eq.{installation_id}", "limit": "1",
             }, prefer="",
         )
+        if isinstance(existing, list) and existing and existing[0].get("session_revoked_at") and str(existing[0].get("auth_session_id") or "") == session_id:
+            raise ValueError("device_session_revoked")
         effective_name = str(existing[0].get("display_name") or display_name) if isinstance(existing, list) and existing else display_name
         rows = self._rest(
             "POST", "archeon_devices", access_token,
@@ -121,6 +127,8 @@ class ArcheonCloudClient:
                 "public_key": public_key, "capabilities": sorted(set(capabilities)),
                 "remote_control_enabled": remote_control_enabled,
                 "file_access_enabled": file_access_enabled,
+                "auth_session_id": session_id,
+                "session_revoked_at": None,
                 "last_seen_at": datetime.now(UTC).isoformat(),
                 "updated_at": datetime.now(UTC).isoformat(),
             },
@@ -135,7 +143,7 @@ class ArcheonCloudClient:
         value = self._rest(
             "GET", "archeon_devices", access_token,
             query={
-                "select": "id,display_name,platform,capabilities,remote_control_enabled,power_commands_enabled,file_access_enabled,paired_at,last_seen_at",
+                "select": "id,display_name,platform,capabilities,remote_control_enabled,power_commands_enabled,file_access_enabled,paired_at,last_seen_at,session_revoked_at",
                 "user_id": f"eq.{user_id}", "order": "last_seen_at.desc",
             }, prefer="",
         )
@@ -153,6 +161,30 @@ class ArcheonCloudClient:
         if not isinstance(rows, list) or not rows:
             raise ValueError("device_not_found")
         return dict(rows[0])
+
+    def revoke_device(self, access_token: str, *, user_id: str, device_id: str) -> dict[str, Any]:
+        rows = self._rest(
+            "PATCH", "archeon_devices", access_token,
+            {
+                "session_revoked_at": datetime.now(UTC).isoformat(),
+                "remote_control_enabled": False,
+                "updated_at": datetime.now(UTC).isoformat(),
+            },
+            query={"id": f"eq.{device_id}", "user_id": f"eq.{user_id}"},
+        )
+        if not isinstance(rows, list) or not rows:
+            raise ValueError("device_not_found")
+        return dict(rows[0])
+
+    @staticmethod
+    def _jwt_session_id(access_token: str) -> str:
+        try:
+            part = access_token.split(".")[1]
+            part += "=" * (-len(part) % 4)
+            claims = json.loads(base64.urlsafe_b64decode(part.encode()).decode())
+            return str(claims.get("session_id") or "")
+        except (IndexError, UnicodeError, ValueError, json.JSONDecodeError):
+            return ""
 
     def queue_command(self, access_token: str, command: RemoteCommand) -> dict[str, Any]:
         if not command.signature:

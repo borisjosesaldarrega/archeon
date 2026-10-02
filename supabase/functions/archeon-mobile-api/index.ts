@@ -158,7 +158,13 @@ async function auth(req: Request, operation: string, payload: any, token: string
       return reply(req, { ok: true });
     }
     if (operation === "logout") {
-      if (token && !await validGuest(token)) await supabase("/auth/v1/logout?scope=local", { method: "POST", body: "{}" }, token);
+      if (token && !await validGuest(token)) {
+        const user = await userFor(token), sessionId = jwtSessionId(token);
+        if (user && sessionId) await adminRest("archeon_devices", `?user_id=eq.${encodeURIComponent(user.id)}&auth_session_id=eq.${encodeURIComponent(sessionId)}`, {
+          method: "PATCH", body: JSON.stringify({ session_revoked_at: new Date().toISOString(), remote_control_enabled: false, updated_at: new Date().toISOString() }),
+        });
+        await supabase("/auth/v1/logout?scope=local", { method: "POST", body: "{}" }, token);
+      }
       return reply(req, { ok: true });
     }
     if (operation === "mfa-status") {
@@ -204,12 +210,50 @@ async function rest(token: string, table: string, query: string, init: RequestIn
   return jsonOrError(response);
 }
 
+async function adminRest(table: string, query: string, init: RequestInit = {}): Promise<any> {
+  const response = await supabase(`/rest/v1/${table}${query}`, init, "", true);
+  return jsonOrError(response);
+}
+
 function previewAllowed(mime: string): boolean {
   return mime.startsWith("image/") || mime.startsWith("text/") || mime === "application/pdf" || mime === "application/json";
 }
 
-function conversationTitle(body: string): string {
-  let value = String(body || "").replace(/\s+/g, " ").trim().replace(/^(?:archi|archeon)[,:\s-]+/iu, "").replace(/^(?:por favor|oye|hola)[,:\s-]+/iu, "");
+function cleanTransportText(body: string): string {
+  return String(body || "")
+    .replace(/%20/giu, " ")
+    .replace(/(?<=\p{L})%(?=\p{L})/gu, " ")
+    .replace(/%[0-9a-f]{2}/giu, " ")
+    .replace(/\s+/g, " ").trim();
+}
+
+function informationSubject(value: string): string {
+  const clean = cleanTransportText(value).replace(/[.!?¡¿]+$/g, "").trim();
+  const words = clean.split(/\s+/u), folded = words.map(contextFold);
+  if (["sabes", "conoces"].includes(folded[0])) {
+    let start = 1;
+    if (folded[start] === "de" || editDistance(folded[start] || "", "sobre") <= 1) start++;
+    return words.slice(start).join(" ").trim();
+  }
+  const direct = clean.match(/^(?:qui[eé]n\s+es|qu[eé]\s+es|h[aá]blame\s+de|expl[ií]came(?:\s+sobre)?)\s+(.+)$/iu);
+  return direct?.[1]?.trim() || "";
+}
+
+const TITLE_PREFIX_BY_INTENT: Record<string, string> = {
+  diagnose: "Problema con", play_media: "Música ·", find: "Búsqueda ·",
+  create: "Creación ·", ask_information: "Sobre",
+};
+
+function conversationTitle(body: string, context: any = null): string {
+  const interpreted = cleanTransportText(context?.interpreted_request || context?.normalized_input || body);
+  const topicId = String(context?.topic?.id || ""), intent = String(context?.intent?.name || "");
+  const topicName = CONTEXT_TOPICS.find(topic => topic.topic_id === topicId)?.name || "";
+  const prefix = TITLE_PREFIX_BY_INTENT[intent] || "";
+  const information = informationSubject(interpreted);
+  if (information) return `Sobre ${information}`.slice(0, 64);
+  if (topicName && prefix) return `${prefix} ${topicName}`.replace(/\s+·\s+/g, " · ").slice(0, 64);
+  if (topicName && topicId !== "general") return topicName.slice(0, 64);
+  let value = interpreted.replace(/^(?:archi|archeon)[,:\s-]+/iu, "").replace(/^(?:por favor|oye|hola)[,:\s-]+/iu, "");
   const research = value.match(/^(?:investiga|busca(?:\s+informaci[oó]n)?(?:\s+sobre)?|expl[ií]came)\s+(.+)/iu);
   if (research?.[1]) value = `Investigación · ${research[1]}`;
   const music = value.match(/^(?:reproduce|pon(?:me)?)\s+(.+)/iu);
@@ -221,20 +265,36 @@ function conversationTitle(body: string): string {
   return compact || "Nuevo chat";
 }
 
+function unsafeConversationTitle(value: unknown): boolean {
+  const title = String(value || "");
+  return ["Nuevo chat", "Información"].includes(title) || /%(?:[0-9a-f]{2}|(?=\p{L}))/iu.test(title) || /[\\]{1,2}(?:n|r|t|u[0-9a-f]{4})/iu.test(title);
+}
+
 async function ensureMobileDevice(req: Request, token: string, userId: string): Promise<any | null> {
   const installation = String(req.headers.get("x-archeon-installation") || "").slice(0, 128);
   if (installation.length < 16) return null;
   const requestedName = String(req.headers.get("x-archeon-device-name") || "Este teléfono").trim().slice(0, 120) || "Este teléfono";
-  const existing = await rest(token, "archeon_devices", `?select=id,display_name&user_id=eq.${encodeURIComponent(userId)}&installation_id=eq.${encodeURIComponent(installation)}&limit=1`, { method: "GET" });
+  const sessionId = jwtSessionId(token);
+  if (!sessionId) throw new Error("session_id_required");
+  const existing = await adminRest("archeon_devices", `?select=id,display_name,auth_session_id,session_revoked_at&user_id=eq.${encodeURIComponent(userId)}&installation_id=eq.${encodeURIComponent(installation)}&limit=1`, { method: "GET" });
   // The cloud name is authoritative after first registration. This lets any
   // device in the same account rename another one without the target's next
   // heartbeat immediately overwriting that choice with a stale local value.
   const displayName = String(existing?.[0]?.display_name || requestedName).slice(0, 120);
-  const rows = await rest(token, "archeon_devices", "?on_conflict=user_id,installation_id&select=id,installation_id,display_name,platform,capabilities,remote_control_enabled,power_commands_enabled,file_access_enabled,last_seen_at", {
+  if (existing?.[0]?.session_revoked_at && String(existing[0].auth_session_id || "") === sessionId) throw new Error("device_session_revoked");
+  const rows = await rest(token, "archeon_devices", "?on_conflict=user_id,installation_id&select=id,installation_id,display_name,platform,capabilities,remote_control_enabled,power_commands_enabled,file_access_enabled,last_seen_at,auth_session_id,session_revoked_at", {
     method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=representation" },
-    body: JSON.stringify({ user_id: userId, installation_id: installation, display_name: displayName, platform: "android", public_key: await hmac(`device:${userId}:${installation}`), capabilities: ["media.play", "launcher.open", "cloud.files"], remote_control_enabled: true, file_access_enabled: true, last_seen_at: new Date().toISOString(), updated_at: new Date().toISOString() }),
+    body: JSON.stringify({ user_id: userId, installation_id: installation, display_name: displayName, platform: "android", public_key: await hmac(`device:${userId}:${installation}`), capabilities: ["media.play", "launcher.open", "cloud.files"], remote_control_enabled: true, file_access_enabled: true, auth_session_id: sessionId, session_revoked_at: null, last_seen_at: new Date().toISOString(), updated_at: new Date().toISOString() }),
   });
   return rows[0] || null;
+}
+
+function jwtSessionId(token: string): string {
+  try {
+    const claims = JSON.parse(decoder.decode(fromBase64Url(token.split(".")[1] || "")));
+    const value = String(claims?.session_id || "");
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(value) ? value : "";
+  } catch (_) { return ""; }
 }
 
 function desktopRemoteIntent(text: string): { action: string; query: string; targetLabel: string } | null {
@@ -323,14 +383,21 @@ async function action(req: Request, payload: any, token: string): Promise<Respon
     if (name.startsWith("media.") || name === "attachment.remove") return reply(req, { ok: true, media: { state: "stopped" } });
     if (!user) return reply(req, { ok: false, error: "account_session_required" }, 401);
     const userId = String(user.id);
+    const currentDevice = await ensureMobileDevice(req, token, userId);
     if (name === "cloud.conversations.list") {
       let rows = await rest(token, "archeon_conversations", "?select=id,title,created_at,updated_at&archived_at=is.null&order=updated_at.desc");
-      const unnamed = rows.filter((item: any) => item.title === "Nuevo chat").slice(0, 20);
-      await Promise.all(unnamed.map(async (item: any) => {
-        const messages = await rest(token, "archeon_messages", `?conversation_id=eq.${encodeURIComponent(item.id)}&role=eq.user&select=body&order=created_at.asc&limit=1`);
-        if (messages?.[0]?.body) await rest(token, "archeon_conversations", `?id=eq.${encodeURIComponent(item.id)}`, { method: "PATCH", body: JSON.stringify({ title: conversationTitle(messages[0].body), updated_at: new Date().toISOString() }) });
+      const repairable = rows.filter((item: any) => unsafeConversationTitle(item.title)).slice(0, 30);
+      await Promise.all(repairable.map(async (item: any) => {
+        const history = await rest(token, "archeon_messages", `?conversation_id=eq.${encodeURIComponent(item.id)}&select=role,body,context_data&order=created_at.asc&limit=12`);
+        if (!history.length) {
+          await rest(token, "archeon_conversations", `?id=eq.${encodeURIComponent(item.id)}`, { method: "PATCH", body: JSON.stringify({ archived_at: new Date().toISOString(), updated_at: new Date().toISOString() }) });
+          return;
+        }
+        const context = history.find((message: any) => message.role === "assistant" && message.context_data?.interpreted_request)?.context_data;
+        const firstUser = history.find((message: any) => message.role === "user");
+        if (context || firstUser?.body) await rest(token, "archeon_conversations", `?id=eq.${encodeURIComponent(item.id)}`, { method: "PATCH", body: JSON.stringify({ title: conversationTitle(firstUser?.body || "", context), updated_at: new Date().toISOString() }) });
       }));
-      if (unnamed.length) rows = await rest(token, "archeon_conversations", "?select=id,title,created_at,updated_at&archived_at=is.null&order=updated_at.desc");
+      if (repairable.length) rows = await rest(token, "archeon_conversations", "?select=id,title,created_at,updated_at&archived_at=is.null&order=updated_at.desc");
       return reply(req, { ok: true, conversations: rows });
     }
     if (name === "cloud.conversations.create") {
@@ -376,7 +443,8 @@ async function action(req: Request, payload: any, token: string): Promise<Respon
       const rows = await rest(token, "archeon_messages", "?select=id,role,body,context_data,created_at", { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify({ user_id: userId, conversation_id: payload.conversation_id, role: payload.role, body: String(payload.body || "").slice(0, 100000), context_data: contextData, client_message_id: crypto.randomUUID() }) });
       const conversations = await rest(token, "archeon_conversations", `?id=eq.${encodeURIComponent(payload.conversation_id)}&select=id,title&limit=1`);
       const currentTitle = String(conversations?.[0]?.title || "");
-      const nextTitle = payload.role === "user" && currentTitle === "Nuevo chat" ? conversationTitle(String(payload.body || "")) : currentTitle;
+      const nextTitle = payload.role === "assistant" && unsafeConversationTitle(currentTitle) && Object.keys(contextData).length
+        ? conversationTitle(String(payload.body || ""), contextData) : currentTitle;
       await rest(token, "archeon_conversations", `?id=eq.${encodeURIComponent(payload.conversation_id)}`, { method: "PATCH", body: JSON.stringify({ title: nextTitle || "Nuevo chat", updated_at: new Date().toISOString() }) });
       return reply(req, { ok: true, message: rows[0], conversation_title: nextTitle || "Nuevo chat" });
     }
@@ -389,12 +457,10 @@ async function action(req: Request, payload: any, token: string): Promise<Respon
     }
     if (name === "cloud.devices.list") {
       const installation = String(req.headers.get("x-archeon-installation") || "").slice(0, 128);
-      await ensureMobileDevice(req, token, userId);
-      const rows = await rest(token, "archeon_devices", "?select=id,installation_id,display_name,platform,capabilities,remote_control_enabled,power_commands_enabled,file_access_enabled,last_seen_at&order=last_seen_at.desc");
+      const rows = await rest(token, "archeon_devices", "?select=id,installation_id,display_name,platform,capabilities,remote_control_enabled,power_commands_enabled,file_access_enabled,last_seen_at,session_revoked_at&order=last_seen_at.desc");
       return reply(req, { ok: true, devices: rows.map((device: any) => ({ ...device, current: device.installation_id === installation })) });
     }
     if (name === "cloud.devices.rename") {
-      await ensureMobileDevice(req, token, userId);
       const deviceId = String(payload.device_id || "");
       const displayName = String(payload.display_name || "").trim().replace(/[\r\n\t]+/g, " ").slice(0, 60);
       if (!displayName) throw new Error("device_name_required");
@@ -402,10 +468,19 @@ async function action(req: Request, payload: any, token: string): Promise<Respon
       if (!rows.length) throw new Error("device_not_found");
       return reply(req, { ok: true, device: rows[0] });
     }
+    if (name === "cloud.devices.revoke") {
+      const deviceId = String(payload.device_id || "");
+      if (!deviceId || deviceId === String(currentDevice?.id || "")) throw new Error("use_local_logout_for_current_device");
+      const rows = await rest(token, "archeon_devices", `?id=eq.${encodeURIComponent(deviceId)}&select=id,display_name,session_revoked_at`, {
+        method: "PATCH", headers: { Prefer: "return=representation" },
+        body: JSON.stringify({ session_revoked_at: new Date().toISOString(), remote_control_enabled: false, updated_at: new Date().toISOString() }),
+      });
+      if (!rows.length) throw new Error("device_not_found");
+      return reply(req, { ok: true, device: rows[0] });
+    }
     if (name === "remote.commands.pending") {
-      const current = await ensureMobileDevice(req, token, userId);
-      if (!current) throw new Error("current_device_not_registered");
-      const rows = await rest(token, "archeon_remote_commands", `?select=id,action,arguments,state,expires_at&target_device_id=eq.${encodeURIComponent(current.id)}&state=eq.queued&expires_at=gt.${encodeURIComponent(new Date().toISOString())}&order=created_at.asc&limit=10`);
+      if (!currentDevice) throw new Error("current_device_not_registered");
+      const rows = await rest(token, "archeon_remote_commands", `?select=id,action,arguments,state,expires_at&target_device_id=eq.${encodeURIComponent(currentDevice.id)}&state=eq.queued&expires_at=gt.${encodeURIComponent(new Date().toISOString())}&order=created_at.asc&limit=10`);
       return reply(req, { ok: true, commands: rows });
     }
     if (name === "remote.commands.complete") {
@@ -437,12 +512,15 @@ async function action(req: Request, payload: any, token: string): Promise<Respon
     }
     return reply(req, { ok: false, error: "action_not_supported_on_mobile" }, 400);
   } catch (error) {
-    return reply(req, { ok: false, error: error instanceof Error ? error.message : "cloud_unavailable" }, 400);
+    const code = error instanceof Error ? error.message : "cloud_unavailable";
+    return reply(req, { ok: false, error: code }, code === "device_session_revoked" ? 401 : 400);
   }
 }
 
 async function uploadAttachment(req: Request, token: string): Promise<Response> {
-  if (!await validGuest(token) && !await userFor(token)) return reply(req, { ok: false, error: "session_required" }, 401);
+  const guest = await validGuest(token), user = guest ? null : await userFor(token);
+  if (!guest && !user) return reply(req, { ok: false, error: "session_required" }, 401);
+  if (user) await ensureMobileDevice(req, token, String(user.id));
   const bytes = new Uint8Array(await req.arrayBuffer());
   if (!bytes.length || bytes.length > 12 * 1024 * 1024) return reply(req, { ok: false, error: "attachment_size_out_of_range" }, 400);
   const name = decodeURIComponent(req.headers.get("x-file-name") || "archivo").replace(/[\\/\0]/g, "_").slice(0, 180);
@@ -754,7 +832,9 @@ function arithmetic(text: string): number | null {
 
 function researchSubject(text: string): string {
   const normalized = text.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLocaleLowerCase("es").trim().replace(/[.!?¡¿]+$/g, "");
-  const explicit = normalized.match(/^(?:investiga|investigar|busca|buscar|explicame|hablame)\s+(?:informacion\s+)?(?:sobre|de)?\s*(.{3,240})$/u);
+  const information = informationSubject(text);
+  if (information) return information;
+  const explicit = normalized.match(/^(?:investiga|investigar|busca|buscar|explicame|hablame|sabes)\s+(?:informacion\s+)?(?:sobre|de)?\s*(.{3,240})$/u);
   if (explicit?.[1]) return explicit[1].trim();
   const factual = normalized.match(/^(?:sabes\s+)?(?:quien|quienes|que)\s+(?:es|son|fue|eran)\s+(.{3,240})$/u);
   return factual?.[1]?.trim() || "";
@@ -829,6 +909,7 @@ const CONTEXT_TOPICS: TopicDefinition[] = [
   { topic_id: "network_security", name: "Red y seguridad", concepts: ["red", "ip", "puerto", "router", "firewall", "cortafuegos"], compatible_intents: ["check_network_port", "diagnose"] },
   { topic_id: "documents", name: "Archivos y documentos", concepts: ["archivo", "documento", "pdf", "carpeta", "proyecto"], compatible_intents: ["open", "close", "find", "delete"] },
   { topic_id: "programming", name: "Programación", concepts: ["codigo", "programar", "proyecto", "python", "java", "c++"], compatible_intents: ["open", "inspect_version", "create"] },
+  { topic_id: "general_information", name: "Información", concepts: ["sabes", "quien", "que es", "sobre", "informacion"], compatible_intents: ["ask_information"] },
 ];
 const CONTEXT_ENTITIES: EntityDefinition[] = [
   { entity_id: "app.spotify", entity_type: "application", name: "Spotify", aliases: ["spotify", "spoti", "espotifai"], topic_hints: ["media_playback"], compatible_intents: ["open", "close", "play_media"] },
@@ -860,6 +941,7 @@ const CONTEXT_INTENTS: IntentDefinition[] = [
   { name: "delete", patterns: [/\b(?:borra|elimina|formatea|desinstala)\b/u], compatible_types: ["file", "application"], sensitive: true },
   { name: "find", patterns: [/\b(?:busca|encuentra|localiza)\b/u], compatible_types: ["file", "project"] },
   { name: "create", patterns: [/\b(?:crea|genera|programa)\b/u], compatible_types: ["file", "project"] },
+  { name: "ask_information", patterns: [/\b(?:sabes|conoces|quien es|que es|hablame de|explicame)\b/u], compatible_types: ["person", "artist", "topic"] },
 ];
 const CONTEXT_NORMALIZATIONS: Array<[RegExp, string]> = [[/\bespotifai\b/giu, "Spotify"], [/\bspoti\b/giu, "Spotify"], [/\blikin par\b/giu, "Linkin Park"], [/\blikin\b/giu, "Linkin Park"], [/\bcansion\b/giu, "canción"]];
 
@@ -980,7 +1062,24 @@ async function conversationHistory(payload: any, token: string, user: any, text:
   return history;
 }
 
-async function researchedAnswer(text: string, followup = false): Promise<string | null> {
+type ResearchAnswer = { message: string; details?: string; source_label?: string; source_url?: string };
+
+function briefResearchExtract(value: string): string {
+  const sentences = value.split(/(?<=[.!?])\s+/u).filter(Boolean);
+  let brief = "";
+  for (const sentence of sentences.slice(0, 3)) {
+    const candidate = [brief, sentence].filter(Boolean).join(" ");
+    if (brief && candidate.length > 170) break;
+    brief = candidate;
+  }
+  if (!brief) brief = value;
+  const compact = brief.replace(/\s+/g, " ").trim();
+  if (compact.length <= 190) return compact;
+  const clipped = compact.slice(0, 187).replace(/\s+\S*$/u, "").trim();
+  return `${clipped || compact.slice(0, 187).trim()}…`;
+}
+
+async function researchedAnswer(text: string, followup = false): Promise<ResearchAnswer | null> {
   const subject = researchSubject(text);
   if (!subject) return null;
   try {
@@ -1008,7 +1107,12 @@ async function researchedAnswer(text: string, followup = false): Promise<string 
     const title = compactText(String(page?.title || subject), 160);
     const url = String(page?.fullurl || "");
     if (!extract || !/^https:\/\//.test(url)) return null;
-    return `${followup ? `Más contexto sobre ${title}` : title}\n\n${extract}\n\nFuente consultada: [Wikipedia](${url})`;
+    if (followup) return { message: `${extract}\n\nFuente: [Wikipedia](${url})` };
+    const brief = briefResearchExtract(fullExtract);
+    return {
+      message: brief,
+      ...(fullExtract.length > brief.length + 80 ? { details: fullExtract, source_label: "Wikipedia", source_url: url } : {}),
+    };
   } catch (_) {
     return null;
   }
@@ -1045,6 +1149,8 @@ function nativeArchi(text: string, attachmentParts: any[], history: any[], conte
   if (attachmentText) return `Leí el contenido adjunto. Sus puntos principales son:\n\n${extractiveSummary(attachmentText)}`;
   if (/\b(hola|buenas|buenos dias|buenas tardes|buenas noches)\b/.test(normalized)) return "Hola, soy ARCHI. Estoy funcionando desde el servicio independiente de ARCHEON; no necesito que tu PC esté encendida.";
   if (/\b(que puedes hacer|ayuda|capacidades)\b/.test(normalized)) return "Puedo mantener tus chats, trabajar con texto y archivos, reproducir música con modo DJ, usar dictado y conversación por voz, y sincronizar Cloud y dispositivos. Las acciones siempre informan su resultado real.";
+  const informationSubject = researchSubject(text);
+  if (context.intent.name === "ask_information" && informationSubject) return `Sí, puedo ayudarte con ${informationSubject}. ¿Qué quieres saber exactamente?`;
   if (/\b(plan|pasos|organiza|organizar|lista)\b/.test(normalized)) return `Plan propuesto para “${compactText(text, 180)}”:\n\n1. Define el resultado exacto y el límite de tiempo.\n2. Reúne los datos o archivos necesarios.\n3. Divide el trabajo en una primera versión verificable.\n4. Ejecuta y comprueba cada resultado antes de continuar.\n5. Cierra con una revisión y una lista de pendientes reales.`;
   return contextualAnswer(context) || "Necesito un poco más de detalle: ¿qué quieres que revise o haga?";
 }
@@ -1052,6 +1158,7 @@ function nativeArchi(text: string, attachmentParts: any[], history: any[], conte
 async function command(req: Request, payload: any, token: string): Promise<Response> {
   const user = await userFor(token);
   if (!await validGuest(token) && !user) return reply(req, { ok: false, error: "session_required" }, 401);
+  if (user) await ensureMobileDevice(req, token, String(user.id));
   const text = String(payload.text ?? "").trim();
   if (!text || text.length > 16000) return reply(req, { ok: false, error: "invalid_text" }, 400);
   const history = await conversationHistory(payload, token, user, text);
@@ -1133,14 +1240,20 @@ async function command(req: Request, payload: any, token: string): Promise<Respo
   }
   const followupSubject = contextualResearchSubject(effectiveText, history);
   const researched = await researchedAnswer(followupSubject ? `investiga ${followupSubject}` : effectiveText, Boolean(followupSubject));
-  const answer = researched || nativeArchi(effectiveText, parts.slice(1), history, context);
+  const answer = researched?.message || nativeArchi(effectiveText, parts.slice(1), history, context);
   await Promise.allSettled(cleanup.map(path => supabase(`/storage/v1/object/archeon-cloud/${path}`, { method: "DELETE" }, "", true)));
-  return reply(req, { ok: true, message: answer, context_interpretation: context, engine: researched ? "archeon-native-research" : "archeon-native", intelligence: payload.intelligence || "medium", attachments_consumed: true });
+  return reply(req, {
+    ok: true, message: answer, context_interpretation: context,
+    expandable_details: researched?.details ? { body: researched.details, source_label: researched.source_label, source_url: researched.source_url } : null,
+    engine: researched ? "archeon-native-research" : "archeon-native",
+    intelligence: payload.intelligence || "medium", attachments_consumed: true,
+  });
 }
 
 async function cloudUpload(req: Request, token: string): Promise<Response> {
   const user = await userFor(token);
   if (!user) return reply(req, { ok: false, error: "account_session_required" }, 401);
+  await ensureMobileDevice(req, token, String(user.id));
   const bytes = new Uint8Array(await req.arrayBuffer());
   if (!bytes.length || bytes.length > 100 * 1024 * 1024) return reply(req, { ok: false, error: "cloud_file_size_out_of_range" }, 400);
   const name = decodeURIComponent(req.headers.get("x-file-name") || "archivo").replace(/[\\/\0]/g, "_").slice(0, 255);
@@ -1173,7 +1286,9 @@ Deno.serve(async (req: Request) => {
     if (route === "/api/session") {
       if (await validGuest(token)) return reply(req, { ok: true, session: { mode: "guest", provider: "local", identity: null, email_verified: false, mfa_required: false } });
       const user = await userFor(token);
-      return user ? reply(req, { ok: true, session: publicSession(user) }) : reply(req, { ok: false, error: "session_required" }, 401);
+      if (!user) return reply(req, { ok: false, error: "session_required" }, 401);
+      await ensureMobileDevice(req, token, String(user.id));
+      return reply(req, { ok: true, session: publicSession(user) });
     }
     if (route.startsWith("/api/auth/")) return auth(req, route.slice(10), await req.json().catch(() => ({})), token);
     if (route === "/api/action") return action(req, await req.json().catch(() => ({})), token);

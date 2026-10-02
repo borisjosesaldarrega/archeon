@@ -101,6 +101,7 @@ class ContextRegistry:
             TopicDefinition("network_security", "Red y seguridad", ("red", "ip", "puerto", "router", "firewall", "cortafuegos"), ("check_network_port", "diagnose")),
             TopicDefinition("documents", "Archivos y documentos", ("archivo", "documento", "pdf", "carpeta", "proyecto"), ("open", "close", "find", "delete")),
             TopicDefinition("programming", "Programación", ("codigo", "programar", "proyecto", "python", "java", "c++"), ("open", "inspect_version", "create")),
+            TopicDefinition("general_information", "Información", ("sabes", "quien", "que es", "sobre", "informacion"), ("ask_information",)),
         )
         for topic in topics:
             registry.register_topic(topic)
@@ -136,6 +137,7 @@ class ContextRegistry:
             IntentDefinition("delete", (r"\b(?:borra|elimina|formatea|desinstala)\b",), ("file", "application"), True),
             IntentDefinition("find", (r"\b(?:busca|encuentra|localiza)\b",), ("file", "project")),
             IntentDefinition("create", (r"\b(?:crea|genera|programa)\b",), ("file", "project")),
+            IntentDefinition("ask_information", (r"\b(?:sabes|conoces|quien es|que es|hablame de|explicame)\b",), ("person", "artist", "topic")),
         )
         for intent in intents:
             registry.register_intent(intent)

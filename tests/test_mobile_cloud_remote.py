@@ -166,8 +166,48 @@ class MobileCloudRemoteTests(unittest.TestCase):
         self.assertIn('function isContextFollowup', source)
         self.assertIn('function lastResearchSubject', source)
         self.assertIn('replace(/^Más contexto sobre\\s+/iu, "")', source)
-        self.assertIn('Fuente consultada: [Wikipedia]', source)
+        self.assertIn('type ResearchAnswer', source)
+        self.assertIn('function briefResearchExtract', source)
+        self.assertIn('Fuente: [Wikipedia]', source)
+        self.assertIn('expandable_details:', source)
         self.assertNotIn('Entiendo que continúas con', source)
+        self.assertIn('name: "ask_information"', source)
+        self.assertIn('sabes|conoces|quien es', source)
+
+    def test_chat_titles_use_clean_context_and_empty_chats_are_not_persisted(self) -> None:
+        source = Path("supabase/functions/archeon-mobile-api/index.ts").read_text(encoding="utf-8")
+        mobile = Path("src/archeon/ui/mobile.js").read_text(encoding="utf-8")
+        self.assertIn("function cleanTransportText", source)
+        self.assertIn("context?.interpreted_request || context?.normalized_input", source)
+        self.assertIn("unsafeConversationTitle", source)
+        self.assertIn('payload.role === "assistant"', source)
+        self.assertNotIn('payload.role === "user" && currentTitle === "Nuevo chat"', source)
+        self.assertIn('if(!activeConversation){const created=await action("cloud.conversations.create"', mobile)
+        self.assertNotIn('async function newChat(){stopMobileMedia();await action("media.stop").catch(()=>{});await discardComposerAttachments();if(cloudReady)', mobile)
+        self.assertIn('id="mobile-conversation-search"', Path("src/archeon/ui/mobile.html").read_text(encoding="utf-8"))
+        self.assertIn("function informationSubject", source)
+        self.assertIn('return `Sobre ${information}`', source)
+        self.assertIn('["Nuevo chat", "Información"]', source)
+        self.assertIn('expandableDetails=result.expandable_details||null', mobile)
+        self.assertIn('summary.textContent="Ver más"', mobile)
+        self.assertIn('storedContext.presentation={expandable_details:expandableDetails}', mobile)
+        stylesheet = Path("src/archeon/ui/mobile-fixes.css").read_text(encoding="utf-8")
+        self.assertIn('grid-template-rows: auto auto auto minmax(0, 1fr)', stylesheet)
+        self.assertIn('.conversation-search { height: 43px; min-height: 43px; max-height: 43px;', stylesheet)
+
+    def test_device_session_revocation_is_bound_to_jwt_session_id(self) -> None:
+        source = Path("supabase/functions/archeon-mobile-api/index.ts").read_text(encoding="utf-8")
+        migration = Path("supabase/migrations/20261002175054_device_session_revocation.sql").read_text(encoding="utf-8")
+        mobile = Path("src/archeon/ui/mobile.js").read_text(encoding="utf-8")
+        self.assertIn('name === "cloud.devices.revoke"', source)
+        self.assertIn("auth_session_id", source)
+        self.assertIn("session_revoked_at", source)
+        self.assertIn("private.archeon_current_session_active()", migration)
+        self.assertIn("security definer", migration.lower())
+        self.assertIn("'account_settings', 'device_settings'", migration)
+        self.assertIn("archeon_cloud_objects_owner_select", migration)
+        self.assertGreaterEqual(migration.count("private.archeon_current_session_active()"), 9)
+        self.assertIn('"Cerrar sesión"', mobile)
 
     def test_image_generation_is_verified_ephemeral_and_downloadable(self) -> None:
         source = Path("supabase/functions/archeon-mobile-api/index.ts").read_text(encoding="utf-8")
@@ -195,7 +235,7 @@ class MobileCloudRemoteTests(unittest.TestCase):
 
     def test_device_heartbeat_preserves_name_changed_from_another_device(self) -> None:
         client = ArcheonCloudClient("https://example.supabase.co", "publishable")
-        with patch.object(client, "_rest", side_effect=[
+        with patch.object(client, "_jwt_session_id", return_value="11111111-1111-4111-8111-111111111111"), patch.object(client, "_rest", side_effect=[
             [{"id": "pc-1", "display_name": "Jarvis"}],
             [{"id": "pc-1", "display_name": "Jarvis"}],
         ]) as request:
@@ -207,6 +247,7 @@ class MobileCloudRemoteTests(unittest.TestCase):
         self.assertEqual(registered["display_name"], "Jarvis")
         posted = request.call_args_list[1].args[3]
         self.assertEqual(posted["display_name"], "Jarvis")
+        self.assertEqual(posted["auth_session_id"], "11111111-1111-4111-8111-111111111111")
 
     def test_cloud_download_verifies_integrity(self) -> None:
         client = ArcheonCloudClient("https://example.supabase.co", "publishable")

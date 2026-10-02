@@ -3268,6 +3268,15 @@ class ArcheonApplication:
                         device_path = self.paths.secure_dir / "cloud-device.json"
                         device_path.write_text(json.dumps(self._cloud_device), encoding="utf-8")
                     return {"ok": True, "device": renamed}
+                if action == "cloud.devices.revoke":
+                    current = self._register_current_cloud_device(access_token, identity.user_id)
+                    device_id = str(payload.get("device_id") or "")
+                    if not device_id or device_id == str(current.get("id") or ""):
+                        raise ValueError("use_local_logout_for_current_device")
+                    revoked = self.cloud.revoke_device(
+                        access_token, user_id=identity.user_id, device_id=device_id,
+                    )
+                    return {"ok": True, "device": revoked}
                 if action == "cloud.conversations.list":
                     return {"ok": True, "conversations": self.cloud.list_conversations(access_token, identity.user_id)}
                 if action == "cloud.conversations.create":
