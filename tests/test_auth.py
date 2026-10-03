@@ -95,7 +95,7 @@ class AuthTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "^invalid_credentials$"):
                 provider._request("POST", "token?grant_type=password", {"email": "person@example.com"})
 
-    def test_supabase_password_recovery_uses_eight_digit_code_without_persisting_session(self) -> None:
+    def test_supabase_password_recovery_returns_the_verified_durable_session(self) -> None:
         class Provider(SupabaseAuthProvider):
             def __init__(self):
                 super().__init__("https://example.supabase.co", "publishable")
@@ -104,21 +104,28 @@ class AuthTests(unittest.TestCase):
             def _request(self, method, path, payload=None, *, access_token=""):
                 self.requests.append((method, path, payload, access_token))
                 if path == "verify":
-                    return {"access_token": "temporary-recovery-token"}
+                    return {
+                        "access_token": "recovery-access", "refresh_token": "recovery-refresh",
+                        "expires_in": 3600,
+                        "user": {"id": "user-a", "email": "person@example.com", "email_confirmed_at": "now"},
+                    }
+                if path == "user":
+                    return {"id": "user-a", "email": "person@example.com", "email_confirmed_at": "now"}
                 return {}
 
         provider = Provider()
         with self.assertRaisesRegex(ValueError, "invalid_verification_code"):
             provider.reset_password("person@example.com", "123456", "new-safe-password")
-        provider.reset_password("person@example.com", "12345678", "new-safe-password")
+        recovered = provider.reset_password("person@example.com", "12345678", "new-safe-password")
         self.assertEqual(provider.requests[0], (
             "POST", "verify",
             {"email": "person@example.com", "token": "12345678", "type": "recovery"}, "",
         ))
         self.assertEqual(provider.requests[1], (
-            "PUT", "user", {"password": "new-safe-password"}, "temporary-recovery-token",
+            "PUT", "user", {"password": "new-safe-password"}, "recovery-access",
         ))
-        self.assertEqual(provider.requests[2][0:2], ("POST", "logout?scope=local"))
+        self.assertEqual(recovered.refresh_token, "recovery-refresh")
+        self.assertEqual(len(provider.requests), 2)
 
     def test_supabase_mfa_rejects_malformed_input_and_verifies_one_challenge(self) -> None:
         class Provider(SupabaseAuthProvider):
@@ -186,6 +193,23 @@ class AuthTests(unittest.TestCase):
         self.assertEqual(restored.identity.user_id, "user-a")
         self.assertEqual(vault.load()["refresh_token"], "refresh-2")
 
+    def test_password_recovery_creates_and_persists_an_account_session(self) -> None:
+        class Provider:
+            name = "fake-cloud"
+
+            def reset_password(self, email, token, password):
+                return ProviderSession(
+                    Identity("user-a", email, "A"), "access-1", "refresh-after-recovery",
+                    int(time.time()) + 3600, True,
+                )
+
+        vault = MemorySessionVault()
+        manager = AuthManager(EventBus(), Provider(), vault)
+        session = manager.reset_password("a@example.com", "12345678", "new-safe-password")
+        self.assertEqual(session.mode, "account")
+        self.assertEqual(session.identity.email, "a@example.com")
+        self.assertEqual(vault.load()["refresh_token"], "refresh-after-recovery")
+
     def test_guest_session_persists_and_logout_clears_it(self) -> None:
         vault = MemorySessionVault()
         first = AuthManager(EventBus(), DevelopmentAuthProvider(Path("unused-auth.json")), vault)
@@ -199,6 +223,14 @@ class AuthTests(unittest.TestCase):
         self.assertEqual(restored.identity.user_id, guest.identity.user_id)
         self.assertTrue(second.logout(restored.token))
         self.assertIsNone(vault.load())
+
+    def test_guest_session_does_not_replace_a_persisted_account(self) -> None:
+        vault = MemorySessionVault()
+        vault.save({"mode": "account", "refresh_token": "refresh-1", "user_id": "user-a"})
+        manager = AuthManager(EventBus(), DevelopmentAuthProvider(Path("unused-auth.json")), vault)
+        self.assertEqual(manager.guest().mode, "guest")
+        self.assertEqual(vault.load()["mode"], "account")
+        self.assertEqual(vault.load()["refresh_token"], "refresh-1")
 
     def test_start_restores_persisted_account_for_background_services(self) -> None:
         class Provider:

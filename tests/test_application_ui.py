@@ -176,6 +176,19 @@ class ApplicationUITests(unittest.TestCase):
         self.assertFalse(first.path.exists())
         self.assertFalse(second.path.exists())
 
+    def test_sent_attachment_is_released_after_a_structured_assistant_error(self) -> None:
+        attachment = self.application.attachments.add_stream(
+            "evidence.txt", "text/plain", 8, io.BytesIO(b"evidence"),
+        )
+        with patch.object(
+            self.application, "_process_request_context",
+            return_value={"ok": False, "error": "capability_missing", "message": "No puedo ejecutarlo."},
+        ):
+            response = self.application.handle_request("úsalo", [attachment.id])
+        self.assertFalse(response["ok"])
+        self.assertTrue(response["attachments_consumed"])
+        self.assertFalse(attachment.path.exists())
+
     def test_project_request_uses_attached_image_as_evidence_not_as_root_intent(self) -> None:
         image = self.application.attachments.add_stream(
             "error.png", "image/png", 8, io.BytesIO(b"\x89PNG\r\n\x1a\n"),
@@ -1043,6 +1056,9 @@ class ApplicationUITests(unittest.TestCase):
         self.assertIn('"voice.resume_listening"', javascript)
         self.assertIn('getBoundingClientRect()', javascript)
         self.assertIn('input.value="";input.style.height="";', javascript)
+        self.assertIn('sentAttachments=requestAttachments.splice(0)', javascript)
+        self.assertIn('attachments:sentAttachments.map', javascript)
+        self.assertIn('requestAttachments.unshift(...sentAttachments)', javascript)
         self.assertIn('hour12:!clock.use_24_hour', javascript)
         self.assertIn('preview.replaceChildren(timeNode,dateNode)', javascript)
         self.assertIn('function previewSettingsControls()', javascript)
@@ -1106,7 +1122,8 @@ class ApplicationUITests(unittest.TestCase):
         self.assertIn('/api/attachment?', mobile_js)
         self.assertIn('attachments:sentAttachments.map', mobile_js)
         self.assertIn('attachmentPreviewCache', mobile_js)
-        self.assertIn('result.attachments_consumed===true', mobile_js)
+        self.assertIn('sentAttachments=mobileAttachments.splice(0)', mobile_js)
+        self.assertIn('mobileAttachments.unshift(...sentAttachments)', mobile_js)
         self.assertIn('discardComposerAttachments', mobile_js)
         self.assertIn('renderEmptyChat()', mobile_js)
         self.assertIn('intelligenceProfiles=', mobile_js)

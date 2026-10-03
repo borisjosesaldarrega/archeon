@@ -7,7 +7,6 @@ import hashlib
 import io
 import json
 import os
-import re
 import socket
 import subprocess
 import time
@@ -133,8 +132,25 @@ class ArchiVisionProvider:
         schema_instruction = (
             "Return JSON only with keys window_summary, visible_text, controls, errors, regions, "
             "possible_actions, confidence. controls and regions use normalized [x1,y1,x2,y2] bounds "
-            "from 0 to 1. Do not invent unreadable controls. " + prompt
+            "from 0 to 1. Keep every array under 20 items and every text value concise. "
+            "Do not invent unreadable controls. " + prompt
         )
+        response_schema = {
+            "type": "object",
+            "properties": {
+                "window_summary": {"type": "string"},
+                "visible_text": {"type": "array", "items": {"type": "string"}},
+                "controls": {"type": "array", "items": {"type": "object"}},
+                "errors": {"type": "array", "items": {"type": "string"}},
+                "regions": {"type": "array", "items": {"type": "object"}},
+                "possible_actions": {"type": "array", "items": {"type": "string"}},
+                "confidence": {"type": "number"},
+            },
+            "required": [
+                "window_summary", "visible_text", "controls", "errors",
+                "regions", "possible_actions", "confidence",
+            ],
+        }
         payload = {
             "model": "ARCHI Vision",
             "messages": [{"role": "user", "content": [
@@ -143,8 +159,11 @@ class ArchiVisionProvider:
                     "url": "data:image/jpeg;base64," + base64.b64encode(image_bytes).decode("ascii"),
                 }},
             ]}],
-            "max_tokens": 700, "temperature": 0.0, "stream": True,
-            "response_format": {"type": "json_object"},
+            "max_tokens": 900, "temperature": 0.0, "stream": True,
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {"name": "screen_observation", "strict": True, "schema": response_schema},
+            },
         }
         request = urllib.request.Request(
             f"http://127.0.0.1:{self._port}/v1/chat/completions",
@@ -168,10 +187,26 @@ class ArchiVisionProvider:
                             first_token_ms = (time.perf_counter() - inference_started) * 1000
                         fragments.append(fragment)
             text = "".join(fragments)
-            match = re.search(r"\{.*\}", text, flags=re.DOTALL)
-            if not match:
-                raise ValueError("vision_response_not_structured")
-            value = json.loads(match.group(0))
+            try:
+                value = self._decode_structured(text)
+            except ValueError:
+                # Some multimodal runtimes occasionally produce an incomplete
+                # streamed JSON object. Retry once without streaming under the
+                # same schema instead of discarding an otherwise valid image.
+                retry_payload = dict(payload)
+                retry_payload["stream"] = False
+                retry_payload["max_tokens"] = 900
+                retry_request = urllib.request.Request(
+                    f"http://127.0.0.1:{self._port}/v1/chat/completions",
+                    data=json.dumps(retry_payload).encode(),
+                    headers={"Content-Type": "application/json"}, method="POST",
+                )
+                with urllib.request.urlopen(retry_request, timeout=300) as response:
+                    retry_response = json.loads(response.read().decode("utf-8", "replace"))
+                retry_text = str(
+                    retry_response.get("choices", [{}])[0].get("message", {}).get("content") or ""
+                )
+                value = self._decode_structured(retry_text)
             observation = SemanticScreenObservation(
                 window_summary=str(value.get("window_summary", ""))[:2000],
                 visible_text=self._text_items(value.get("visible_text"), limit=100, width=1000),
@@ -195,6 +230,22 @@ class ArchiVisionProvider:
             elif self.state is not VisionState.ERROR:
                 self.state = VisionState.READY
                 self._arm_idle_unload()
+
+    @staticmethod
+    def _decode_structured(text: str) -> dict[str, Any]:
+        """Extract one complete JSON object without accepting guessed fields."""
+        decoder = json.JSONDecoder()
+        cleaned = text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+        for offset, character in enumerate(cleaned):
+            if character != "{":
+                continue
+            try:
+                value, _end = decoder.raw_decode(cleaned[offset:])
+            except json.JSONDecodeError:
+                continue
+            if isinstance(value, dict):
+                return value
+        raise ValueError("vision_response_not_structured")
 
     @staticmethod
     def _text_items(value: Any, *, limit: int, width: int) -> tuple[str, ...]:

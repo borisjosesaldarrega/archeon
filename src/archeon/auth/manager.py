@@ -70,7 +70,7 @@ class AuthProvider(Protocol):
     def restore(self, refresh_token: str) -> ProviderSession: ...
     def refresh(self, refresh_token: str) -> ProviderSession: ...
     def forgot_password(self, email: str) -> None: ...
-    def reset_password(self, email: str, token: str, password: str) -> None: ...
+    def reset_password(self, email: str, token: str, password: str) -> ProviderSession: ...
     def verify_signup(self, email: str, token: str) -> ProviderSession: ...
     def resend_signup(self, email: str) -> None: ...
     def reauthenticate(self, access_token: str) -> None: ...
@@ -250,7 +250,7 @@ class DevelopmentAuthProvider:
     def forgot_password(self, email: str) -> None:
         raise ValueError("cloud_auth_unavailable")
 
-    def reset_password(self, email: str, token: str, password: str) -> None:
+    def reset_password(self, email: str, token: str, password: str) -> ProviderSession:
         raise ValueError("cloud_auth_unavailable")
 
     def verify_signup(self, email: str, token: str) -> ProviderSession:
@@ -382,7 +382,7 @@ class SupabaseAuthProvider:
     def forgot_password(self, email: str) -> None:
         self._request("POST", "recover", {"email": normalize_email(email, canonical_aliases=False)})
 
-    def reset_password(self, email: str, token: str, password: str) -> None:
+    def reset_password(self, email: str, token: str, password: str) -> ProviderSession:
         code = token.strip()
         if len(code) != 8 or not code.isdecimal():
             raise ValueError("invalid_verification_code")
@@ -396,10 +396,20 @@ class SupabaseAuthProvider:
         access_token = str(verified.get("access_token") or "")
         if not access_token:
             raise ValueError("invalid_verification_code")
-        self._request("PUT", "user", {"password": password}, access_token=access_token)
-        # Recovery tokens are single-purpose. End the temporary provider session
-        # so password recovery never signs ARCHEON in implicitly.
-        self.logout(access_token, "local")
+        updated = self._request("PUT", "user", {"password": password}, access_token=access_token)
+        # A verified recovery code already represents an authenticated recovery
+        # session. Keep the rotated refresh token Supabase returned so Windows
+        # can persist the account with DPAPI and the user is not sent through a
+        # second, failure-prone password login immediately after recovery.
+        recovered = dict(verified)
+        if isinstance(updated, dict) and updated.get("id"):
+            recovered["user"] = updated
+        result = self._result(recovered)
+        if not result.refresh_token:
+            # Older/self-hosted GoTrue builds may omit the refresh token from
+            # verify. A normal password grant provides the same durable session.
+            result = self.login(email, password)
+        return result
 
     def verify_signup(self, email: str, token: str) -> ProviderSession:
         code = token.strip()
@@ -517,8 +527,8 @@ class AuthManager(ManagedComponent):
     def forgot_password(self, email: str) -> None:
         self._provider.forgot_password(email)
 
-    def reset_password(self, email: str, token: str, password: str) -> None:
-        self._provider.reset_password(email, token, password)
+    def reset_password(self, email: str, token: str, password: str) -> Session:
+        return self._create(self._provider.reset_password(email, token, password), "account")
 
     def verify_signup(self, email: str, token: str) -> Session:
         return self._create(self._provider.verify_signup(email, token), "account")
@@ -648,7 +658,12 @@ class AuthManager(ManagedComponent):
         if mode == "account" and provider_session.refresh_token:
             self._vault.save({"mode": "account", "refresh_token": provider_session.refresh_token, "user_id": provider_session.identity.user_id, "saved_at": int(time.time())})
         elif mode == "guest":
-            self._vault.save({"mode": "guest", "user_id": provider_session.identity.user_id, "saved_at": int(time.time())})
+            # Entering guest mode must never destroy an account refresh token.
+            # This matters during startup fallbacks and offline use: the next
+            # launch can still restore the authenticated account automatically.
+            persisted = self._vault.load()
+            if not persisted or persisted.get("mode") == "guest":
+                self._vault.save({"mode": "guest", "user_id": provider_session.identity.user_id, "saved_at": int(time.time())})
         self._events.publish("auth.session.started", {"mode": mode}, source="auth")
         return session
 

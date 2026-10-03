@@ -233,7 +233,7 @@
       document.getElementById("reset-email").value=email; showAuthView("reset"); authMessage.textContent=t("auth.recovery_sent");
     } catch (error) { authError(error); }
   });
-  document.getElementById("auth-reset").addEventListener("submit",async(event)=>{event.preventDefault();try{const password=document.getElementById("reset-password").value,confirmPassword=document.getElementById("reset-password-confirm").value;await auth("reset-password",{email:document.getElementById("reset-email").value.trim(),code:document.getElementById("reset-code").value,password,confirm_password:confirmPassword});showAuthView("login");authMessage.textContent=t("auth.reset_done");}catch(error){authError(error);}});
+  document.getElementById("auth-reset").addEventListener("submit",async(event)=>{event.preventDefault();try{const password=document.getElementById("reset-password").value,confirmPassword=document.getElementById("reset-password-confirm").value,value=await auth("reset-password",{email:document.getElementById("reset-email").value.trim(),code:document.getElementById("reset-code").value,password,confirm_password:confirmPassword});sessionStorage.setItem("archeon_session",value.session_token);document.getElementById("reset-password").value="";document.getElementById("reset-password-confirm").value="";if(await requireMfa(value.session))return;enterApplication(value.session);await loadCurrentSettings(document.documentElement.lang||"es");}catch(error){authError(error);}});
   document.getElementById("logout-button").addEventListener("click", async () => {
     try { await auth("logout"); } catch (_) { /* local session is cleared regardless */ }
     events?.close();
@@ -800,12 +800,13 @@
   }
 
   document.getElementById("command-form").addEventListener("submit", async (event) => {
-    event.preventDefault(); const input=document.getElementById("command-input"); const result=document.getElementById("result"); const text=input.value.trim(); if(!text)return;
+    event.preventDefault(); const input=document.getElementById("command-input"); const result=document.getElementById("result"); const text=input.value.trim(); if(!text||input.disabled)return;
+    const sentAttachments=requestAttachments.splice(0);renderAttachments();
     document.getElementById("context-reply").hidden=false;document.getElementById("context-user").textContent=text;result.textContent="";
     input.value="";input.style.height="";
     commandStartedAt=performance.now();firstVisibleReported=false;input.disabled=true; setState("thinking","state.thinking_detail");
-    try { const response=await fetch("/api/command",{method:"POST",headers:headers(),body:JSON.stringify({text,attachments:requestAttachments.map(item=>item.id)})}); const value=await response.json(); if(!response.ok||!value.ok){const message=value.message||messages[`error.${value.error}`]||"No pude procesar esa solicitud.";showNotice(message,"error");showMascotError(message);setState("error","state.error_detail");return;} renderAssistantText(result,value.message);if(value.data?.generated_image)result.replaceChildren();renderArtifactPreviews(value.data?.artifacts||[]);renderGeneratedImage(value.data?.generated_image);reportFirstVisible(value.correlation_id,"first_visible_response");if(value.attachments_consumed){requestAttachments.forEach(item=>{if(item.preview_url)URL.revokeObjectURL(item.preview_url);});requestAttachments.splice(0);renderAttachments();} }
-    catch(_error){const message="ARCHEON perdió la conexión local. Puedes editar y reenviar desde el mensaje anterior.";showNotice(message,"error",true);showMascotError(message);setState("error","state.error_detail");}
+    try { const response=await fetch("/api/command",{method:"POST",headers:headers(),body:JSON.stringify({text,attachments:sentAttachments.map(item=>item.id)})}); const value=await response.json();sentAttachments.forEach(item=>{if(item.preview_url)URL.revokeObjectURL(item.preview_url);});if(!response.ok||!value.ok){const message=value.message||messages[`error.${value.error}`]||"No pude procesar esa solicitud.";showNotice(message,"error");showMascotError(message);setState("error","state.error_detail");return;} renderAssistantText(result,value.message);if(value.data?.generated_image)result.replaceChildren();renderArtifactPreviews(value.data?.artifacts||[]);renderGeneratedImage(value.data?.generated_image);reportFirstVisible(value.correlation_id,"first_visible_response"); }
+    catch(_error){requestAttachments.unshift(...sentAttachments);renderAttachments();const message="ARCHEON perdió la conexión local. Puedes editar y reenviar desde el mensaje anterior.";showNotice(message,"error",true);showMascotError(message);setState("error","state.error_detail");}
     finally{input.disabled=false;input.focus();setState("idle","state.ready");}
   });
 

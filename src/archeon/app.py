@@ -949,9 +949,12 @@ class ArcheonApplication:
         context = UserRequestContext(text=text, attachments=records, conversation_id=conversation_id)
         result = self._process_request_context(context)
         result["request_context"] = context.public()
-        consumed = bool(result.get("ok"))
+        # Reaching the processor means this request owns the uploaded files.
+        # Release them even when the assistant returns a structured failure so
+        # a sent attachment can never remain queued and be submitted twice.
+        consumed = bool(identifiers)
         result["attachments_consumed"] = consumed
-        if consumed:
+        if identifiers:
             self.attachments.release(identifiers)
         return result
 
@@ -1499,7 +1502,9 @@ class ArcheonApplication:
             response_language = self._last_request_language or self.configuration.config.language.interface
             grounded_vision_prompt = (
                 f"{text}\nRespond only in {language_names.get(response_language, 'Spanish')}. "
-                "Describe only details that are verifiably visible; do not translate names or invent objects."
+                "Describe only details that are verifiably visible; do not translate names or invent objects. "
+                "Identify authentication errors, but never reproduce passwords, verification codes, tokens, "
+                "or complete email addresses visible in form fields."
             )
             for path in image_paths:
                 result = self.tools.execute(
@@ -4240,12 +4245,11 @@ class ArcheonApplication:
                 password = str(payload.get("password", ""))
                 if password != str(payload.get("confirm_password", "")):
                     return {"ok": False, "error": "passwords_do_not_match"}
-                self.auth.reset_password(
+                session = self.auth.reset_password(
                     str(payload.get("email", "")),
                     str(payload.get("code", "")),
                     password,
                 )
-                return {"ok": True}
             elif operation == "reauthenticate":
                 self.auth.reauthenticate(session_token)
                 return {"ok": True}

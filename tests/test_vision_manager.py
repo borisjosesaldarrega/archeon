@@ -60,6 +60,13 @@ class VisionManagerTests(unittest.TestCase):
         selected = _select_control({"confidence": 0.95, "controls": [grounded[1] | {"label": "OK button"}]}, "OK")
         self.assertEqual(selected["label"], "OK button")
 
+    def test_structured_decoder_accepts_fenced_json_without_greedy_matching(self) -> None:
+        value = ArchiVisionProvider._decode_structured(
+            'analysis before\n```json\n{"window_summary":"Login", "errors":["Invalid"]}\n```\ntrailing {noise}'
+        )
+        self.assertEqual(value["window_summary"], "Login")
+        self.assertEqual(value["errors"], ["Invalid"])
+
 
 if __name__ == "__main__":
     unittest.main()
