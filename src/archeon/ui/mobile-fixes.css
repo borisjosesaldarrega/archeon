@@ -220,15 +220,15 @@
   height: calc(100dvh - 74px);
   display: grid;
   align-content: start;
-  gap: 10px;
-  padding: 14px 14px calc(24px + env(safe-area-inset-bottom));
+  gap: 8px;
+  padding: 12px 12px calc(24px + env(safe-area-inset-bottom));
   overflow: auto;
 }
 
 .settings-card {
   display: grid;
   gap: 11px;
-  padding: 14px;
+  padding: 13px;
   border: 1px solid var(--line);
   border-radius: 14px;
   background: var(--panel);
@@ -259,6 +259,13 @@
   line-height: 1.45;
   font-size: 12px;
 }
+
+.mobile-settings-group { margin: 9px 3px 1px !important; color: var(--accent) !important; font-size: 10px !important; font-weight: 700; letter-spacing: .13em; }
+.settings-link-card { grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px; }
+.settings-link-card>div { display:flex;align-items:center;gap:11px;min-width:0; }
+.settings-link-card>div>div { display:grid;gap:3px;min-width:0; }
+.settings-link-card .settings-card-icon { width:36px;height:36px;display:grid;place-items:center;flex:0 0 36px;border:1px solid color-mix(in srgb,var(--accent) 28%,var(--line));border-radius:11px;background:color-mix(in srgb,var(--accent) 8%,transparent);color:var(--accent);font-size:17px; }
+.settings-link-card button { min-width:92px; }
 
 .mobile-settings-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
 .mobile-settings-heading > div { display:grid; gap:4px; }
@@ -771,4 +778,46 @@ body.mobile-media-active .mobile-attachment-previews { bottom: 226px; }
 .mobile-mfa-settings{display:grid;gap:10px;margin-top:14px;padding-top:14px;border-top:1px solid rgba(0,232,255,.22)}
 .mobile-mfa-settings img{display:block;width:190px;max-width:100%;margin:4px auto;background:#fff;border-radius:12px}
 .mobile-mfa-settings code{display:block;overflow-wrap:anywhere;color:var(--accent,#00e8ff);user-select:all}
+
+/* Wide phones and tablets use the available space as an application layout,
+   instead of stretching a narrow phone canvas or leaving it centered. */
+@media (min-width: 760px) {
+  .mobile-app {
+    width: 100%;
+    max-width: none;
+    margin: 0;
+    border: 0;
+    grid-template-columns: 88px minmax(0, 1fr);
+    grid-template-rows: 70px minmax(0, 1fr);
+  }
+  .topbar { grid-column: 1 / -1; grid-row: 1; }
+  main { grid-column: 2; grid-row: 2; width: min(100%, 960px); min-width: 0; justify-self: center; border-inline: 1px solid color-mix(in srgb,var(--line) 65%,transparent); }
+  .bottom-nav { grid-column: 1; grid-row: 2; grid-template-columns: 1fr; grid-auto-rows: minmax(68px,auto); align-content: start; gap: 5px; padding: 12px 8px; border-top: 0; border-right: 1px solid var(--line); }
+  .bottom-nav.guest-nav { grid-template-columns: 1fr; }
+  .bottom-nav button { min-height: 68px; border-radius: 12px; }
+  .bottom-nav button.active { background: color-mix(in srgb,var(--accent) 8%,transparent); }
+  .messages { width: 100%; max-width: 920px; margin-inline: auto; padding-inline: 24px; }
+  .message { max-width: min(76%,720px); }
+  .composer { left: 112px; right: 24px; bottom: 18px; width: auto; max-width: 912px; margin-inline: auto; }
+  .mobile-attachment-previews { left: 112px; right: 24px; max-width: 912px; margin-inline: auto; }
+  .mobile-media-player { width: calc(100% - 48px); max-width: 912px; margin-inline: auto; }
+  .cards,.note,.panel>header { width: min(100%,920px); margin-inline: auto; }
+  .mobile-settings { width: min(560px,72vw); }
+  .drawer { width: min(380px,46vw); }
+}
+
+@media (min-width: 760px) and (orientation: landscape) and (max-height: 620px) {
+  .mobile-app { grid-template-rows: 58px minmax(0,1fr); }
+  .topbar { height: 58px; }
+  .brand img { width: 31px; height: 31px; }
+  .bottom-nav { grid-auto-rows: minmax(54px,auto); padding-block: 8px; }
+  .bottom-nav button { min-height: 54px; }
+  .bottom-nav button span { font-size: 17px; }
+  .composer { bottom: 10px; }
+  .messages { padding-top: 12px; padding-bottom: 82px; }
+  .mobile-media-player { margin-bottom: 68px; }
+  .mobile-settings { width: min(620px,78vw); }
+  .mobile-settings>header { min-height: 60px; padding-block: 9px; }
+  .settings-scroll { height: calc(100dvh - 60px); }
+}
 .mobile-mfa-settings label,.mobile-mfa-settings>div{display:grid;gap:8px}

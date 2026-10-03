@@ -245,11 +245,12 @@
 
     <dialog id="cloud-dialog" class="settings-dialog cloud-dialog">
       <form method="dialog">
-        <header><div><span class="eyebrow">ARCHEON CLOUD</span><h2>Mis archivos y dispositivos</h2></div><button id="cloud-close" type="button" aria-label="Cerrar">×</button></header>
-        <p class="provider-note">Contenido privado de tu cuenta. Los archivos se verifican con SHA-256 y no usan enlaces públicos permanentes.</p>
+        <header><div><span class="eyebrow">CUENTA ARCHEON</span><h2 id="cloud-dialog-title">ARCHEON Cloud</h2></div><button id="cloud-close" type="button" aria-label="Cerrar">×</button></header>
+        <div class="cloud-view-tabs" role="tablist" aria-label="Contenido de la cuenta"><button type="button" data-cloud-view="files" class="active">Cloud</button><button type="button" data-cloud-view="devices">Dispositivos</button></div>
+        <p id="cloud-dialog-note" class="provider-note">Archivos privados de tu cuenta, verificados con SHA-256 y sin enlaces públicos permanentes.</p>
         <div class="cloud-toolbar"><label class="outline cloud-upload">＋ Subir archivo<input id="cloud-file-input" type="file" hidden></label><button id="cloud-refresh" class="ghost-action" type="button">Actualizar</button></div>
-        <section class="cloud-section"><div class="cloud-section-title"><strong>Archivos</strong><span id="cloud-file-count">—</span></div><div id="cloud-files" class="cloud-list" aria-live="polite"></div></section>
-        <section class="cloud-section"><div class="cloud-section-title"><strong>Mis dispositivos</strong><span id="cloud-device-count">—</span></div><div id="cloud-devices" class="cloud-list" aria-live="polite"></div></section>
+        <section id="cloud-files-section" class="cloud-section"><div class="cloud-section-title"><strong>Archivos</strong><span id="cloud-file-count">—</span></div><div id="cloud-files" class="cloud-list" aria-live="polite"></div></section>
+        <section id="cloud-devices-section" class="cloud-section"><div class="cloud-section-title"><strong>Mis dispositivos</strong><span id="cloud-device-count">—</span></div><div id="cloud-devices" class="cloud-list" aria-live="polite"></div></section>
         <p id="cloud-message" class="auth-message" role="status"></p>
       </form>
     </dialog>
@@ -280,6 +281,7 @@
             <button type="button" data-settings-section="music" data-i18n="nav.music">Música</button>
             <button type="button" data-settings-section="privacy" data-i18n="nav.privacy">Sincronización y datos</button>
             <button type="button" class="account-only" data-settings-section="cloud" data-i18n="nav.cloud">Cloud</button>
+            <button type="button" class="account-only" data-settings-section="devices">Dispositivos</button>
             <button type="button" data-settings-section="extensions" data-i18n="nav.extensions">Extensiones</button>
             <button type="button" data-settings-section="updates" data-i18n="nav.updates">Actualizaciones</button>
             <button type="button" data-settings-open="voice" data-i18n="nav.voice">Voz y audio</button>
@@ -406,13 +408,22 @@
               <p id="settings-ai-status" class="provider-note" role="status">ARCHI en reposo · se activa cuando hace falta</p>
               <p class="provider-note">Los componentes internos están administrados y protegidos por ARCHEON; no requieren configuración manual.</p>
             </section>
-            <section class="settings-section account-only" data-settings-panel="cloud" data-search-terms="cloud nube sincronización dispositivos lan relay remoto móvil archivos">
-              <div class="settings-section-heading"><div><h3 data-i18n="cloud.title">ARCHEON Cloud</h3><p>Administra qué se sincroniza con tu cuenta y entra a tus archivos y dispositivos.</p></div><span class="settings-state-badge connected">Cuenta conectada</span></div>
+            <section class="settings-section account-only" data-settings-panel="cloud" data-search-terms="cloud nube sincronización archivos almacenamiento cuenta">
+              <div class="settings-section-heading"><div><h3 data-i18n="cloud.title">ARCHEON Cloud</h3><p>Sincroniza preferencias y administra los archivos privados de tu cuenta.</p></div><span class="settings-state-badge connected">Cuenta conectada</span></div>
               <div id="settings-cloud-status" class="cloud-settings-summary" aria-live="polite"></div>
               <div class="cloud-preferences-card">
                 <label class="check-row"><input id="settings-sync-enabled" type="checkbox"><span><strong>Sincronizar preferencias con mi cuenta</strong><small>Mantiene nombre de activación, idioma, apariencia y preferencias compatibles entre dispositivos.</small></span></label>
-                <div class="settings-actions"><button id="settings-sync-now" class="outline" type="button">Sincronizar ahora</button><button id="settings-open-cloud" class="ghost-action" type="button">Abrir archivos y dispositivos</button></div>
+                <div class="settings-actions"><button id="settings-sync-now" class="outline" type="button">Sincronizar ahora</button><button id="settings-open-cloud" class="ghost-action" type="button">Abrir ARCHEON Cloud</button></div>
                 <p id="settings-sync-status" class="provider-note" role="status"></p>
+              </div>
+            </section>
+            <section class="settings-section account-only" data-settings-panel="devices" data-search-terms="dispositivos equipos pc móvil control remoto nombre sesión transferencia">
+              <div class="settings-section-heading"><div><h3>Dispositivos</h3><p>Administra los equipos vinculados a tu cuenta sin mezclar sus controles con Cloud.</p></div><span class="settings-state-badge connected">Cuenta conectada</span></div>
+              <div id="settings-devices-status" class="cloud-settings-summary device-settings-summary" aria-live="polite"></div>
+              <div class="cloud-preferences-card">
+                <strong>Control por dispositivo</strong>
+                <p class="provider-note">Cada equipo conserva su propio nombre, permisos, última actividad y sesión. Cambiar uno no modifica los demás.</p>
+                <div class="settings-actions single"><button id="settings-open-devices" class="outline" type="button">Administrar dispositivos</button></div>
               </div>
             </section>
             <section class="settings-section" data-settings-panel="extensions" data-search-terms="extensiones plugins instalar habilitar firma compatibilidad marketplace">

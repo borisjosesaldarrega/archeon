@@ -7,6 +7,8 @@ import json
 import os
 import re
 import time
+from urllib.parse import quote
+from urllib.request import Request, urlopen
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from difflib import SequenceMatcher
@@ -62,6 +64,7 @@ from archeon.understanding import (
     NaturalLanguageRepair, NegationScopeResolver, WritingStyleEngine,
     has_explicit_media_context, has_unnegated,
     is_ambiguous_media_play_verb, is_current_information_request,
+    TemporalQueryResolver,
 )
 from archeon.documents import DocumentStyleProfile
 
@@ -96,6 +99,7 @@ class ArcheonApplication:
         )
         self.language_repair = NaturalLanguageRepair()
         self.conversation_contexts = ConversationContextManager()
+        self.temporal_queries = TemporalQueryResolver()
         self.negation_scope = NegationScopeResolver()
         self.language_context = LanguageContextEngine()
         self.knowledge_router = KnowledgeRouter()
@@ -680,6 +684,32 @@ class ArcheonApplication:
         query = re.sub(r"\b(?:quiero\s+saber\s+la\s+[uú]ltima\s+noticia|hoy|actualmente)\b", " ", query, flags=re.IGNORECASE)
         return " ".join(query.split()).strip(" ,.;:!?¡¿") or text.strip()
 
+    @staticmethod
+    def _verified_weather(location: str) -> dict[str, Any] | None:
+        """Read current conditions without inferring the user's location."""
+        try:
+            request = Request(
+                f"https://wttr.in/{quote(location)}?format=j1",
+                headers={"User-Agent": "ARCHEON/1.0", "Accept": "application/json"},
+            )
+            with urlopen(request, timeout=6) as response:
+                payload = json.loads(response.read(1_000_000).decode("utf-8"))
+            current = payload.get("current_condition", [])[0]
+            nearest = payload.get("nearest_area", [])[0]
+            resolved = nearest.get("areaName", [{}])[0].get("value") or location
+            region = nearest.get("region", [{}])[0].get("value") or ""
+            description = current.get("lang_es", [{}])[0].get("value", "").strip()
+            return {
+                "location": ", ".join(part for part in (resolved, region) if part),
+                "temperature_c": int(current["temp_C"]),
+                "feels_like_c": int(current["FeelsLikeC"]),
+                "humidity": int(current["humidity"]),
+                "description": description,
+                "source": "wttr.in",
+            }
+        except (OSError, TimeoutError, ValueError, KeyError, IndexError, TypeError, json.JSONDecodeError):
+            return None
+
     def handle_command(self, text: str) -> dict[str, Any]:
         return self._process_request_context(UserRequestContext(text=text))
 
@@ -729,6 +759,14 @@ class ArcheonApplication:
             known_files=(item.path for item in context.attachments),
         )
         context_interpreter = self.conversation_contexts.for_conversation(context.conversation_id)
+        temporal_history = tuple(
+            message
+            for thread in context_interpreter.state.threads.values()
+            for message in thread.messages
+        )
+        temporal_resolution = self.temporal_queries.resolve(
+            interpretation.repaired_text, history=temporal_history,
+        )
         # Session topic threads are isolated by conversation.  Only entities
         # attached to this request enter that state automatically; the broader
         # TaskContext remains operational/persistent memory, not chat history.
@@ -747,6 +785,17 @@ class ArcheonApplication:
             normalized_input=interpretation.repaired_text,
             known_entities=request_entities,
         )
+        if temporal_resolution is not None:
+            contextual = replace(
+                contextual,
+                interpreted_request=interpretation.repaired_text,
+                intent={"name": "date_time_query", "confidence": round(temporal_resolution.confidence, 3)},
+                topic={"id": "date_time", "confidence": round(temporal_resolution.confidence, 3)},
+                context_sources=tuple(dict.fromkeys((*contextual.context_sources, "temporal_semantic_resolver"))),
+                confidence=temporal_resolution.confidence,
+                requires_confirmation=False,
+                requires_clarification=False,
+            )
         self.logger.debug(
             "context.interpreted topic=%s intent=%s confidence=%.3f evidence=%s sources=%s",
             contextual.topic.get("id"), contextual.intent.get("name"), contextual.confidence,
@@ -762,7 +811,7 @@ class ArcheonApplication:
             self._task_context.remember_writing_feedback("avoid_generic_conclusion")
         if "menos formal" in lowered:
             self._task_context.remember_writing_feedback("less_formal")
-        if interpretation.clarification_required or contextual.clarification_required or contextual.requires_confirmation:
+        if (interpretation.clarification_required and temporal_resolution is None) or contextual.clarification_required or contextual.requires_confirmation:
             candidates = [
                 str(candidate)
                 for reference in contextual.references
@@ -792,10 +841,25 @@ class ArcheonApplication:
             project_root=self._task_context.active_project or "",
             context_tags=("attachments",) if context.attachments else (),
         )
+        visual_evidence_for_project = bool(
+            context.attachments
+            and re.search(
+                r"\b(?:proyecto|c[oó]digo|archivos?|carpeta|fuente|repositorio|src)\b",
+                context.text,
+                re.IGNORECASE,
+            )
+            and re.search(
+                r"\b(?:revisa|revisar|checa|comprueba|busca|encuentra|corrige|arregla|fallos?|errores?)\b",
+                context.text,
+                re.IGNORECASE,
+            )
+        )
         routed_context = UserRequestContext(
             text=(learned.replacement_text if learned and learned.replacement_text else contextual.interpreted_request),
             attachments=context.attachments,
-            intent_override=learned.correct_intent if learned else None,
+            intent_override=(learned.correct_intent if learned else (
+                "project_request_with_visual_evidence" if visual_evidence_for_project else None
+            )),
             operational_learning_id=learned.id if learned else None,
             conversation_id=context.conversation_id,
         )
@@ -809,7 +873,19 @@ class ArcheonApplication:
         )
         knowledge = self.knowledge_router.assess(routed_context.text)
         try:
-            result = self._handle_command(routed_context.text, routed_context)
+            if temporal_resolution is not None:
+                now = datetime.now().astimezone()
+                result = {
+                    "ok": True,
+                    "message": temporal_resolution.answer(now),
+                    "data": {
+                        "route": "local_clock", "iso": now.isoformat(),
+                        "temporal_resolution": temporal_resolution.public(),
+                    },
+                    "correlation_id": None,
+                }
+            else:
+                result = self._handle_command(routed_context.text, routed_context)
         except Exception as error:
             self.logger.exception(
                 "command.failed correlation_id=%s error_type=%s",
@@ -1309,6 +1385,8 @@ class ArcheonApplication:
     def _handle_document_intent(
         self, text: str, normalized_text: str, context: UserRequestContext | None,
     ) -> dict[str, Any] | None:
+        if context and context.intent_override == "project_request_with_visual_evidence":
+            return None
         document_terms = bool(re.search(
             r"\b(?:pdf|documento|docx|xlsx|pptx|markdown|archivo|adjunto|descargas|p[aá]gina|zip|7z|rar|tar|comprimido|adentro)\b",
             normalized_text,
@@ -1400,7 +1478,9 @@ class ArcheonApplication:
             member_read = next((item for item in archive_results if item.get("member") and item.get("ok")), None)
             message = str(member_read.get("content", {}).get("text", ""))[:20_000] if member_read else "Inspeccioné el comprimido sin extraerlo completo."
             return {"ok": any(item.get("ok") for item in archive_results), "message": message or "El miembro es binario; registré su estructura y hash sin ejecutarlo.", "data": {"route": "archive_inspector", "files": archive_results, "file_routes": [item.public() for item in routes]}, "correlation_id": None}
-        if image_paths and not supported_paths and not artifact_paths:
+        if image_paths and not supported_paths and not artifact_paths and not (
+            context and context.intent_override == "project_request_with_visual_evidence"
+        ):
             if self.vision_provider is None:
                 return {
                     "ok": False,
@@ -1447,7 +1527,9 @@ class ArcheonApplication:
                 "data": {"route": "artifact_attachment_reader", "files": inspected, "file_routes": [item.public() for item in routes]},
                 "correlation_id": None,
             }
-        if attachments and not supported_paths:
+        if attachments and not supported_paths and not (
+            context and context.intent_override == "project_request_with_visual_evidence"
+        ):
             return {
                 "ok": False,
                 "message": "Los adjuntos se detectaron, pero todavía no hay un parser verificable para: " + ", ".join(unsupported or (item.name for item in attachments)),
@@ -1693,13 +1775,17 @@ class ArcheonApplication:
             "correlation_id": None,
         }
 
-    def _handle_programming_intent(self, text: str, normalized_text: str) -> dict[str, Any] | None:
+    def _handle_programming_intent(
+        self, text: str, normalized_text: str, context: UserRequestContext | None = None,
+    ) -> dict[str, Any] | None:
         programming_request = bool(re.search(
             r"\b(?:proyecto|c[oó]digo|programa|aplicaci[oó]n)\b.*\b"
             r"(?:no\s+(?:inicia|arranca|abre|funciona)|arregla|corrige|repara)\b|"
-            r"\b(?:arregla|corrige|repara)\b.*\b(?:proyecto|c[oó]digo|programa|aplicaci[oó]n)\b",
+            r"\b(?:arregla|corrige|repara)\b.*\b(?:proyecto|c[oó]digo|programa|aplicaci[oó]n)\b|"
+            r"\b(?:revisa|checa|comprueba|busca|encuentra|corrige|arregla)\b.*"
+            r"\b(?:fallos?|errores?)\b.*\b(?:archivos?|carpeta|proyecto|c[oó]digo|src)\b",
             normalized_text,
-        ))
+        )) or bool(context and context.intent_override == "project_request_with_visual_evidence")
         if not programming_request:
             return None
         project_value = self._task_context.active_project or self._task_context.active_folder
@@ -2663,7 +2749,7 @@ class ArcheonApplication:
         browser_response = self._handle_browser_intent(text, normalized_text)
         if browser_response is not None:
             return browser_response
-        programming_response = self._handle_programming_intent(text, normalized_text)
+        programming_response = self._handle_programming_intent(text, normalized_text, context)
         if programming_response is not None:
             return programming_response
         multi_app_response = self._handle_multi_app_intent(text, normalized_text)
@@ -2781,12 +2867,64 @@ class ArcheonApplication:
                 "data": {"route": "media_rejection", "rejected_id": rejected.id},
                 "correlation_id": None,
             }
-        if re.search(r"\b(?:que|qué)\s+(?:dia|día|fecha|hora|año)\b|\bfecha\s+actual\b|\bhora\s+actual\b|\bwhat (?:day|date|time|year)\b|\bque horas\b|\bquelle (?:date|heure)\b|\bwie spat\b|\bche ore\b|现在几点|今日の日付|몇 시|который час|كم الساعة|समय क्या", normalized_text):
+        temporal = self.temporal_queries.resolve(text)
+        if temporal is not None:
             now = datetime.now().astimezone()
             return {
                 "ok": True,
-                "message": f"Hoy es {now:%d/%m/%Y} y son las {now:%H:%M} ({now.tzname() or 'hora local'}).",
-                "data": {"route": "local_clock", "iso": now.isoformat()},
+                "message": temporal.answer(now),
+                "data": {
+                    "route": "local_clock", "iso": now.isoformat(),
+                    "temporal_resolution": temporal.public(),
+                },
+                "correlation_id": None,
+            }
+        weather_request = bool(re.search(
+            r"\b(?:temperatura|clima|tiempo|pron[oó]stico|weather|forecast)\b",
+            normalized_text,
+        ))
+        if weather_request:
+            location_match = re.search(
+                r"\b(?:en|de|para)\s+([a-záéíóúñü][a-záéíóúñü .'-]{1,60}?)(?:\s+(?:hoy|ahora|actualmente))?[.!?]*$",
+                normalized_text,
+                re.IGNORECASE,
+            )
+            location = location_match.group(1).strip(" .") if location_match else ""
+            if not location or location in {"el dia", "el día", "hoy", "ahora", "este dia", "este día"}:
+                return {
+                    "ok": True,
+                    "message": "¿De qué ciudad quieres conocer el clima? No usaré tu ubicación sin permiso ni voy a inventarla.",
+                    "data": {"route": "weather_clarification", "known": False},
+                    "correlation_id": None,
+                }
+            weather = self._verified_weather(location)
+            if weather is None:
+                return {
+                    "ok": False,
+                    "message": f"No pude verificar el clima actual de {location}. Prefiero no darte una temperatura inventada.",
+                    "data": {"route": "current_weather", "verified": False, "requested_location": location},
+                    "correlation_id": None,
+                }
+            description = f" y {weather['description'].casefold()}" if weather["description"] else ""
+            return {
+                "ok": True,
+                "message": (
+                    f"Ahora mismo en {weather['location']} hay {weather['temperature_c']} °C{description}. "
+                    f"La sensación térmica es de {weather['feels_like_c']} °C y la humedad es del {weather['humidity']} %."
+                ),
+                "data": {"route": "current_weather", "verified": True, "weather": weather},
+                "correlation_id": None,
+            }
+        if re.search(
+            r"\b(?:(?:en\s+)?d[oó]nde\s+estamos(?:\s+ubicados)?|(?:en\s+)?(?:qu[eé]|q)\s+(?:pa[ií]s|ciudad|lugar)\s+estamos|"
+            r"(?:el\s+)?pa[ií]s\s+en\s+(?:qu[eé]|q)\s+estamos|"
+            r"cu[aá]l\s+es\s+(?:mi|nuestra)\s+ubicaci[oó]n|mi\s+ubicaci[oó]n|nuestro\s+pa[ií]s)\b",
+            normalized_text,
+        ):
+            return {
+                "ok": True,
+                "message": "No tengo acceso a tu ubicación exacta. Dime la ciudad o autoriza una ubicación explícita y podré usarla para clima, rutas y resultados locales.",
+                "data": {"route": "location_status", "epistemic_status": "UNKNOWN", "location_authorized": False},
                 "correlation_id": None,
             }
         knowledge_assessment = self.knowledge_router.assess(text)
@@ -2817,13 +2955,13 @@ class ArcheonApplication:
                     "data": {"route": "live_search", "verified": False},
                     "correlation_id": None,
                 }
-            lines = ["Información actual verificada:"]
-            for item in results:
-                published = f" · {item['published']}" if item.get("published") else ""
-                lines.append(f"• {item['title']} — {item['source']}{published}\n  {item['url']}")
+            lines = ["Esto es lo más relevante que pude verificar ahora:"]
+            for item in results[:3]:
+                source = str(item.get("source") or "fuente verificada")
+                lines.append(f"• {item['title']} ({source})")
             return {
                 "ok": True, "message": "\n".join(lines),
-                "data": {"route": "live_search", "verified": True, "results": results},
+                "data": {"route": "live_search", "verified": True, "results": results, "sources_hidden_from_chat": True},
                 "correlation_id": None,
             }
         input_visibility = re.match(
@@ -3403,6 +3541,13 @@ class ArcheonApplication:
             return {"ok": True}
         if action == "attachment.remove":
             return {"ok": self.attachments.remove(str(payload.get("id", "")))}
+        if action == "onboarding.complete":
+            if str(payload.get("surface", "desktop")) != "desktop":
+                return {"ok": False, "error": "invalid_onboarding_surface"}
+            settings = self.configuration.update_settings(
+                {"appearance": {"desktop_onboarding_completed": True}}
+            )
+            return {"ok": True, "settings": settings}
         if action == "settings.update":
             changes = payload.get("changes")
             if not isinstance(changes, dict):

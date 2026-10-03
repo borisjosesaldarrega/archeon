@@ -8,6 +8,7 @@ import unittest
 import urllib.error
 import urllib.request
 import time
+from datetime import datetime
 from types import SimpleNamespace
 from pathlib import Path
 from threading import Thread
@@ -20,6 +21,8 @@ from archeon.auth import DevelopmentAuthProvider, MemorySessionVault, Session
 from archeon.auth.manager import Identity, ProviderSession
 from archeon.media.providers import MediaSearchResult
 from archeon.cloud import RemoteAction
+from archeon.context import UserRequestContext
+from archeon.understanding import TemporalQueryResolver
 from tests.test_browser_agent import FakeOpener
 from archeon.ui.server import UI_ROOT
 
@@ -172,6 +175,20 @@ class ApplicationUITests(unittest.TestCase):
         self.assertTrue(response["attachments_consumed"])
         self.assertFalse(first.path.exists())
         self.assertFalse(second.path.exists())
+
+    def test_project_request_uses_attached_image_as_evidence_not_as_root_intent(self) -> None:
+        image = self.application.attachments.add_stream(
+            "error.png", "image/png", 8, io.BytesIO(b"\x89PNG\r\n\x1a\n"),
+        )
+        context = UserRequestContext(
+            text="revisa los errores del proyecto",
+            attachments=(image,),
+            intent_override="project_request_with_visual_evidence",
+        )
+        response = self.application._handle_document_intent(
+            context.text, context.text.casefold(), context,
+        )
+        self.assertIsNone(response)
 
     def test_document_followup_creates_verified_word_and_pdf(self) -> None:
         self.application._last_document_output = {
@@ -824,6 +841,69 @@ class ApplicationUITests(unittest.TestCase):
         self.assertTrue(response["ok"])
         self.assertEqual(response["data"]["route"], "live_search")
         self.assertEqual(calls, [("gta 6 y el hacker leak", "pd"), ("gta 6 y el hacker leak", "pw")])
+        self.assertNotIn("https://", response["message"])
+        self.assertTrue(response["data"]["sources_hidden_from_chat"])
+
+    def test_date_location_and_weather_do_not_fall_through_to_hallucination(self) -> None:
+        date_response = self.application.handle_command("en qué año y día estamos")
+        self.assertTrue(date_response["ok"])
+        self.assertEqual(date_response["data"]["route"], "local_clock")
+        self.assertIn(str(datetime.now().astimezone().year), date_response["message"])
+        day_response = self.application.handle_command("me dices solo el día")
+        self.assertEqual(day_response["data"]["route"], "local_clock")
+        self.assertEqual(day_response["data"]["temporal_resolution"]["fields"], ["day"])
+        self.assertNotIn("20 de octubre", day_response["message"].casefold())
+
+        location_response = self.application.handle_command("me dices el país en q estamos")
+        self.assertTrue(location_response["ok"])
+        self.assertEqual(location_response["data"]["route"], "location_status")
+        self.assertEqual(location_response["data"]["epistemic_status"], "UNKNOWN")
+
+        weather_response = self.application.handle_command("la temperatura del día")
+        self.assertTrue(weather_response["ok"])
+        self.assertEqual(weather_response["data"]["route"], "weather_clarification")
+
+    def test_temporal_queries_resolve_semantic_fields_without_phrase_cases(self) -> None:
+        resolver = TemporalQueryResolver()
+        expected = {
+            "me dices solo el día": ("day",),
+            "¿qué mes es?": ("month",),
+            "año": ("year",),
+            "en qué año y día estamos": ("day", "year"),
+            "fecha actual": ("day", "month", "year"),
+        }
+        for phrase, fields in expected.items():
+            with self.subTest(phrase=phrase):
+                resolution = resolver.resolve(phrase)
+                self.assertIsNotNone(resolution)
+                self.assertEqual(resolution.fields, fields)
+                self.assertGreaterEqual(resolution.confidence, 0.66)
+        self.assertIsNone(resolver.resolve("resumen del día"))
+        self.assertIsNone(resolver.resolve("temperatura del día"))
+        combined = resolver.resolve(
+            "me lo dices junto",
+            history=("qué día es", "qué mes es"),
+        )
+        self.assertIsNotNone(combined)
+        self.assertEqual(combined.fields, ("day", "month"))
+        self.assertIn("context:day", combined.evidence)
+
+    def test_temporal_followup_uses_isolated_conversation_memory(self) -> None:
+        self.application.handle_request("qué día es", conversation_id="temporal-a")
+        self.application.handle_request("qué mes es", conversation_id="temporal-a")
+        combined = self.application.handle_request("me lo dices junto", conversation_id="temporal-a")
+        self.assertEqual(combined["data"]["route"], "local_clock")
+        self.assertEqual(combined["data"]["temporal_resolution"]["fields"], ["day", "month"])
+        self.assertIn(" de ", combined["message"])
+        unrelated = self.application.handle_request("me lo dices junto", conversation_id="temporal-b")
+        self.assertNotEqual(unrelated.get("data", {}).get("route"), "local_clock")
+
+    def test_desktop_tour_dismissal_is_persisted_outside_browser_origin(self) -> None:
+        result = self.application.handle_action("onboarding.complete", {"surface": "desktop"})
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["settings"]["appearance"]["desktop_onboarding_completed"])
+        persisted = json.loads(self.application.configuration.path.read_text(encoding="utf-8"))
+        self.assertTrue(persisted["appearance"]["desktop_onboarding_completed"])
 
     def test_named_hacker_leak_question_uses_verified_live_search(self) -> None:
         calls: list[str] = []
@@ -890,8 +970,13 @@ class ApplicationUITests(unittest.TestCase):
         self.assertIn('class="guest-only session-settings"', html)
         self.assertIn('id="settings-activation-state"', html)
         self.assertIn('id="settings-open-cloud"', html)
+        self.assertIn('data-settings-section="devices"', html)
+        self.assertIn('data-settings-panel="devices"', html)
+        self.assertIn('id="settings-open-devices"', html)
+        self.assertIn('data-cloud-view="files"', html)
+        self.assertIn('data-cloud-view="devices"', html)
         self.assertIn('Aún no hay extensiones instaladas', javascript)
-        self.assertIn('https://archeon.netlify.app/', javascript)
+        self.assertIn('https://archeon.netlify.app/plugins', javascript)
         self.assertIn('data:image/svg+xml;charset=utf-8', javascript)
         self.assertIn('id="crop-dialog"', html)
         self.assertIn('id="crop-zoom"', html)

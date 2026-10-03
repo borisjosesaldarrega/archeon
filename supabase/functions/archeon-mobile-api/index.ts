@@ -973,6 +973,7 @@ const CONTEXT_TOPICS: TopicDefinition[] = [
   { topic_id: "general_information", name: "Información", concepts: ["sabes", "quien", "que es", "sobre", "informacion"], compatible_intents: ["ask_information"] },
   { topic_id: "casual_conversation", name: "Conversación", concepts: ["hola", "saludo", "charla", "conversacion", "cuentas", "andas", "jaja", "jeje"], compatible_intents: ["casual_conversation"] },
   { topic_id: "current_news", name: "Noticias", concepts: ["noticia", "noticias", "actualidad", "hoy", "reciente", "localidad", "crimen"], compatible_intents: ["news_search"] },
+  { topic_id: "date_time", name: "Fecha y hora", concepts: ["fecha", "dia", "año", "hora", "hoy", "calendario"], compatible_intents: ["date_time_query"] },
   { topic_id: "visual_input", name: "Contenido visual", concepts: ["imagen", "captura", "camara", "pantalla", "ves", "mira"], compatible_intents: ["inspect_visual"] },
 ];
 const CONTEXT_ENTITIES: EntityDefinition[] = [
@@ -1013,12 +1014,75 @@ const CONTEXT_INTENTS: IntentDefinition[] = [
   { name: "ask_information", patterns: [/\b(?:sabes|conoces|quien es|que es|hablame de|explicame)\b/u], compatible_types: ["person", "artist", "topic"] },
   { name: "casual_conversation", patterns: [/\b(?:hola|buenas|como (?:estas|andas|va todo)|que (?:tal|te cuentas)|charlemos|conversemos|jaja+|jeje+)\b/u], compatible_types: [] },
   { name: "news_search", patterns: [/\b(?:noticias?|actualidad|que paso hoy|algo nuevo|sucesos recientes)\b/u], compatible_types: ["location"], governing: true },
+  { name: "date_time_query", patterns: [], compatible_types: [], governing: true },
   { name: "inspect_visual", patterns: [/\b(?:puedes ver|que ves|mira|revisa|analiza|inspecciona)\b[^.]{0,100}\b(?:imagen|captura|camara|pantalla|dispositivo)\b/u], compatible_types: ["image", "screen", "camera", "device"] },
 ];
 const CONTEXT_NORMALIZATIONS: Array<[RegExp, string]> = [[/\bespotifai\b/giu, "Spotify"], [/\bspoti\b/giu, "Spotify"], [/\blikin par\b/giu, "Linkin Park"], [/\blikin\b/giu, "Linkin Park"], [/\bcansion\b/giu, "canción"]];
 
 function contextFold(value: string): string {
   return value.normalize("NFKD").replace(/\p{Diacritic}/gu, "").toLocaleLowerCase("es").replace(/\s+/g, " ").trim();
+}
+
+type TemporalResolution = { fields: Array<"day" | "month" | "year" | "time">; confidence: number; evidence: string[] };
+const TEMPORAL_FIELDS = [
+  { id: "day", aliases: ["dia", "dia de hoy", "jornada"] },
+  { id: "month", aliases: ["mes"] },
+  { id: "year", aliases: ["ano"] },
+  { id: "time", aliases: ["hora", "horas"] },
+  { id: "date", aliases: ["fecha", "fecha actual"] },
+] as const;
+const TEMPORAL_QUERY_CUES = new Set(["que", "cual", "dime", "decir", "dices", "indica", "indicame", "estamos", "es", "son"]);
+const TEMPORAL_CURRENT_CUES = new Set(["hoy", "actual", "ahora", "estamos"]);
+const TEMPORAL_CONFLICTS = new Set(["resumen", "noticias", "agenda", "historia", "explica", "temperatura", "clima", "pronostico"]);
+const TEMPORAL_COMPOSITION_CUES = new Set(["junto", "juntos", "juntas", "ambos", "combina", "combinar", "completo", "together", "both", "combine"]);
+const TEMPORAL_ORDER = ["day", "month", "year", "time"] as const;
+const REQUEST_CAPABILITIES = [
+  { id: "weather", concepts: new Set(["clima", "temperatura", "pronostico", "tiempo", "weather", "forecast"]) },
+  { id: "daily_brief", concepts: new Set(["resumen", "noticias", "actualidad", "agenda"]) },
+] as const;
+
+function requestedCapabilities(value: string): string[] {
+  const tokens = new Set(contextFold(value).match(/[\p{L}\p{N}]+/gu) || []);
+  return REQUEST_CAPABILITIES
+    .map(definition => ({ id: definition.id, score: [...definition.concepts].filter(concept => tokens.has(concept)).length }))
+    .filter(candidate => candidate.score > 0)
+    .sort((left, right) => right.score - left.score)
+    .map(candidate => candidate.id);
+}
+
+const SEMANTIC_STOP_WORDS = new Set(["a", "al", "de", "del", "el", "en", "es", "la", "las", "lo", "los", "me", "mi", "por", "que", "se", "te", "un", "una", "y"]);
+
+function semanticSufficiency(value: string, context?: Pick<ContextResult, "entities">): { score: number; concepts: string[] } {
+  const concepts = (contextFold(value).match(/[\p{L}\p{N}]+/gu) || []).filter(token => token.length > 1 && !SEMANTIC_STOP_WORDS.has(token));
+  const unique = [...new Set(concepts)], entityWeight = Math.min(2, context?.entities.length || 0);
+  const relationWeight = /\b(?:con|contra|desde|hasta|para|porque|pero|cuando|donde|como)\b/u.test(contextFold(value)) ? 1 : 0;
+  return { score: Math.min(1, (unique.length + entityWeight + relationWeight) / 5), concepts: unique };
+}
+
+function temporalResolution(value: string, history: string[] = []): TemporalResolution | null {
+  const normalized = contextFold(value), tokens = normalized.match(/[\p{L}\p{N}]+/gu) || [], tokenSet = new Set(tokens);
+  const matched = new Set<string>(), evidence: string[] = [];
+  for (const definition of TEMPORAL_FIELDS) {
+    const alias = [...definition.aliases].sort((a, b) => b.length - a.length).find(item => new RegExp(`(?:^| )${item}(?: |$)`, "u").test(normalized));
+    if (alias) { matched.add(definition.id); evidence.push(`field:${definition.id}:${alias}`); }
+  }
+  if (matched.has("date")) { matched.delete("date"); ["day", "month", "year"].forEach(field => matched.add(field)); evidence.push("date_expansion"); }
+  const query = [...tokenSet].filter(token => TEMPORAL_QUERY_CUES.has(token));
+  const current = [...tokenSet].filter(token => TEMPORAL_CURRENT_CUES.has(token));
+  const conflicts = [...tokenSet].filter(token => TEMPORAL_CONFLICTS.has(token));
+  const composition = [...tokenSet].filter(token => TEMPORAL_COMPOSITION_CUES.has(token));
+  if (!matched.size && composition.length && query.length) {
+    for (const previous of history.slice(-6)) {
+      const prior = temporalResolution(previous);
+      prior?.fields.forEach(field => matched.add(field));
+    }
+    if (matched.size) evidence.push(...TEMPORAL_ORDER.filter(field => matched.has(field)).map(field => `context:${field}`), ...composition.map(item => `composition:${item}`));
+  }
+  if (!matched.size) return null;
+  const score = Math.max(0, Math.min(1, .48 + Math.min(.22, .08 * matched.size) + (query.length ? .18 : 0) + (current.length ? .12 : 0) + (tokens.length <= 4 ? .12 : 0) + (composition.length && evidence.some(item => item.startsWith("context:")) ? .12 : 0) - (conflicts.length ? .55 : 0)));
+  if (score < .66) return null;
+  evidence.push(...query.map(item => `query:${item}`), ...current.map(item => `current:${item}`));
+  return { fields: TEMPORAL_ORDER.filter(field => matched.has(field)), confidence: score, evidence };
 }
 
 function contextEntities(value: string): ContextEntity[] {
@@ -1038,7 +1102,7 @@ function contextEntities(value: string): ContextEntity[] {
   return found.sort((a, b) => a.position - b.position);
 }
 
-function contextIntent(value: string, entities: ContextEntity[], previous = ""): { name: string; confidence: number } {
+function contextIntent(value: string, entities: ContextEntity[], previous = "", history: string[] = []): { name: string; confidence: number } {
   const text = contextFold(value), types = new Set(entities.map(item => item.entity_type));
   const scored = CONTEXT_INTENTS.flatMap(definition => {
     const matches = definition.patterns.map(pattern => pattern.exec(text)).filter(Boolean) as RegExpExecArray[];
@@ -1049,6 +1113,8 @@ function contextIntent(value: string, entities: ContextEntity[], previous = ""):
     if (definition.governing && compatibility) confidence += .12;
     return [{ name: definition.name, confidence: Math.min(1, confidence) }];
   });
+  const temporal = temporalResolution(value, history);
+  if (temporal) scored.push({ name: "date_time_query", confidence: temporal.confidence });
   if (scored.length) return scored.sort((a, b) => b.confidence - a.confidence)[0];
   const prior = CONTEXT_INTENTS.find(item => item.name === previous);
   if (prior && prior.compatible_types.some(type => types.has(type))) return { name: previous, confidence: .76 };
@@ -1075,6 +1141,7 @@ function topicScores(value: string, entities: ContextEntity[], intent: string, t
 
 function interpretContext(text: string, history: any[]): ContextResult {
   const threads = new Map<string, ContextThread>(); let active = "general", turn = 0;
+  const userHistory = history.filter(item => item?.role === "user").map(item => String(item.body ?? item.content ?? "")).filter(Boolean);
   for (const item of history.slice(-24)) {
     const structured = item?.context_data?.entities;
     if (item?.role === "assistant" && Array.isArray(structured) && threads.has(active)) {
@@ -1093,11 +1160,11 @@ function interpretContext(text: string, history: any[]): ContextResult {
     thread.entities = thread.entities.slice(-24); threads.set(topic, thread); active = topic;
   }
   let normalized = text.normalize("NFKC").replace(/%20/giu, " ").replace(/(?<=\p{L})%(?=\p{L})/gu, " ").replace(/\s+/g, " ").trim(); for (const [pattern, replacement] of CONTEXT_NORMALIZATIONS) normalized = normalized.replace(pattern, replacement);
-  const folded = contextFold(normalized), explicit = contextEntities(normalized), initialIntent = contextIntent(normalized, explicit, threads.get(active)?.intents.at(-1) || ""), scores = topicScores(normalized, explicit, initialIntent.name, threads, turn + 1);
+  const folded = contextFold(normalized), explicit = contextEntities(normalized), initialIntent = contextIntent(normalized, explicit, threads.get(active)?.intents.at(-1) || "", userHistory), scores = topicScores(normalized, explicit, initialIntent.name, threads, turn + 1);
   const ranked = Object.entries(scores).sort((a, b) => b[1] - a[1]); let topic = ranked[0]?.[0] || "general", best = ranked[0]?.[1] || 0;
   if (best < .16 && threads.has(active)) { topic = active; best = .42; }
   else if (!threads.size && !explicit.length && ranked[1] && Math.abs(best - ranked[1][1]) < .025) { topic = "general"; best = .35; }
-  const existed = threads.has(topic), previousActive = active, thread = threads.get(topic), contextList = thread?.entities || [], intent = contextIntent(normalized, explicit, thread?.intents.at(-1) || initialIntent.name);
+  const existed = threads.has(topic), previousActive = active, thread = threads.get(topic), contextList = thread?.entities || [], intent = contextIntent(normalized, explicit, thread?.intents.at(-1) || initialIntent.name, userHistory);
   let resolution: ContextResult["resolution"] = topic === previousActive ? "CONTINUE_ACTIVE_THREAD" : existed ? "SWITCH_TO_RECENT_THREAD" : "CREATE_NEW_THREAD";
   const related = ranked.slice(1, 4).filter(([, score]) => score >= .35 && score >= best * .72).map(([id]) => id); if (related.length) resolution = "RELATE_MULTIPLE_THREADS";
   const references: Record<string, unknown>[] = [], entities = [...explicit], sources = ["current_message"];
@@ -1121,7 +1188,8 @@ function interpretContext(text: string, history: any[]): ContextResult {
   if (/^(?:desde ayer|desde anoche|hace rato|otra vez|nuevamente)$/u.test(folded) && thread?.messages.length) { interpreted = `${thread.messages.at(-1)} ${normalized}`; sources.push("incomplete_continuation"); }
   if (resolution === "SWITCH_TO_RECENT_THREAD") sources.push("reactivated_thread"); if (related.length) sources.push("related_threads");
   const second = ranked[1]?.[1] || 0, topicConfidence = Math.min(.99, .58 + best * .42 + Math.max(0, best - second) * .22), confidence = unresolved ? .42 : Math.min(intent.confidence, topicConfidence, selected?.confidence || 1);
-  const sensitive = Boolean(intentDef?.sensitive), clarification = unresolved && !intentDef?.implicit_active_target && (sensitive || confidence < .6), confirmation = sensitive && (unresolved || confidence < .6);
+  const sufficientlySpecified = semanticSufficiency(normalized, { entities }).score >= .6;
+  const sensitive = Boolean(intentDef?.sensitive), clarification = unresolved && !sufficientlySpecified && !intentDef?.implicit_active_target && (sensitive || confidence < .6), confirmation = sensitive && (unresolved || confidence < .6);
   const facts = [{ key: "resolved_topic", value: topic, status: (resolution === "CONTINUE_ACTIVE_THREAD" ? "KNOWN" : "INFERRED") as Evidence, confidence: topicConfidence, source: "topic_scores" }, ...entities.map(entity => ({ key: `entity:${entity.entity_id}`, value: entity.name, status: entity.status, confidence: entity.confidence, source: entity.source }))];
   return { raw_input: text, normalized_input: normalized, interpreted_request: interpreted, intent, topic: { id: topic, confidence: topicConfidence, scores }, entities, references, related_topics: related, context_sources: [...new Set(sources)], confidence, requires_confirmation: confirmation, requires_clarification: clarification, clarification_required: clarification, resolution, facts };
 }
@@ -1208,8 +1276,19 @@ function rssValue(item: string, tag: string): string {
   return decodeXml(item.match(new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${tag}>`, "iu"))?.[1] || "");
 }
 
-async function currentNewsAnswer(text: string): Promise<string | null> {
-  const clean = compactText(text.replace(/[¿?]/g, " "), 220);
+type CurrentNewsAnswer = {
+  message: string;
+  sources: Array<{ title: string; source: string; url: string }>;
+};
+
+function newsSearchTerms(text: string): string {
+  const ignored = new Set(["dime", "cuentame", "busca", "muestra", "dame", "quiero", "saber", "noticia", "noticias", "actualidad", "reciente", "recientes", "algo", "nuevo", "nueva", "hoy", "de", "del", "en", "la", "las", "los", "el", "sobre", "por", "favor"]);
+  const terms = contextFold(text).match(/[\p{L}\p{N}-]{2,}/gu)?.filter(token => !ignored.has(token)) || [];
+  return compactText(terms.join(" ") || "Ecuador", 140);
+}
+
+async function currentNewsAnswer(text: string): Promise<CurrentNewsAnswer | null> {
+  const clean = newsSearchTerms(text);
   const query = `${clean} ${/\bhoy\b/iu.test(clean) ? "when:1d" : "when:7d"}`.trim();
   if (!query) return null;
   try {
@@ -1223,10 +1302,65 @@ async function currentNewsAnswer(text: string): Promise<string | null> {
       .map(match => ({ title: rssValue(match[1], "title"), link: rssValue(match[1], "link"), source: rssValue(match[1], "source") }))
       .filter(item => item.title && /^https:\/\//i.test(item.link));
     if (!items.length) return null;
-    return `Estas son las novedades recientes que encontré:\n\n${items.map(item => `- [${item.title}](${item.link})${item.source ? ` — ${item.source}` : ""}`).join("\n")}`;
+    const sources = items.slice(0, 3).map(item => {
+      const escapedSource = item.source.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const repeatedSource = escapedSource ? new RegExp(`\\s+-\\s+${escapedSource}\\s*$`, "iu") : null;
+      return {
+        title: compactText(repeatedSource ? item.title.replace(repeatedSource, "") : item.title, 220),
+        source: item.source,
+        url: item.link,
+      };
+    });
+    const narrative = sources.map((item, index) => {
+      const lead = index === 0 ? "Entre lo más reciente" : index === 1 ? "También se informó" : "Por otro lado";
+      return `${lead}: ${item.title}${/[.!?…]$/u.test(item.title) ? "" : "."}${item.source ? ` La información fue publicada por ${item.source}.` : ""}`;
+    }).join("\n\n");
+    return { message: `${narrative}\n\nSi quieres, puedo ampliar cualquiera de estos temas.`, sources };
   } catch (_) {
     return null;
   }
+}
+
+async function currentWeatherAnswer(location: string): Promise<string | null> {
+  try {
+    const response = await fetch(`https://wttr.in/${encodeURIComponent(location)}?format=j1`, {
+      headers: { Accept: "application/json", "User-Agent": "ARCHEON/1.0 current-weather" },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!response.ok) return null;
+    const value = await response.json(), current = value?.current_condition?.[0], area = value?.nearest_area?.[0];
+    if (!current || !Number.isFinite(Number(current.temp_C))) return null;
+    const label = String(area?.areaName?.[0]?.value || location), description = String(current?.lang_es?.[0]?.value || current?.weatherDesc?.[0]?.value || "").trim();
+    return `Ahora mismo en ${label} hay ${current.temp_C} °C${description ? ` y ${description.toLocaleLowerCase("es")}` : ""}. La sensación térmica es de ${current.FeelsLikeC} °C y la humedad es del ${current.humidity} %.`;
+  } catch (_) {
+    return null;
+  }
+}
+
+function currentDateTimeAnswer(text: string, payload: any, contextual?: TemporalResolution | null): string {
+  const locale = /^[a-z]{2}(?:-[A-Z]{2})?$/.test(String(payload.locale || "")) ? String(payload.locale) : "es-EC";
+  const requestedZone = String(payload.timezone || "America/Guayaquil");
+  let timezone = "America/Guayaquil";
+  try { new Intl.DateTimeFormat(locale, { timeZone: requestedZone }).format(new Date()); timezone = requestedZone; } catch (_) {}
+  const now = new Date(), resolution = contextual || temporalResolution(text);
+  const fields = resolution?.fields.length ? resolution.fields : ["day", "month", "year"] as TemporalResolution["fields"];
+  const values: Record<string, string> = {
+    day: new Intl.DateTimeFormat(locale, { timeZone: timezone, weekday: "long", day: "numeric" }).format(now),
+    month: new Intl.DateTimeFormat(locale, { timeZone: timezone, month: "long" }).format(now),
+    year: new Intl.DateTimeFormat(locale, { timeZone: timezone, year: "numeric" }).format(now),
+    time: new Intl.DateTimeFormat(locale, { timeZone: timezone, hour: "numeric", minute: "2-digit" }).format(now),
+  };
+  const single: Record<string, string> = { day: `Hoy es ${values.day}.`, month: `Estamos en ${values.month}.`, year: `Estamos en ${values.year}.`, time: `Son las ${values.time}.` };
+  if (fields.length === 1) return single[fields[0]];
+  const combined: Record<string, string> = {
+    "day,month": `Hoy es ${values.day} de ${values.month}.`,
+    "month,year": `Estamos en ${values.month} de ${values.year}.`,
+    "day,month,year": `Hoy es ${values.day} de ${values.month} de ${values.year}.`,
+  };
+  if (combined[fields.join(",")]) return combined[fields.join(",")];
+  const labels: Record<string, string> = { day: "día", month: "mes", year: "año", time: "hora" };
+  const answer = fields.map(field => `${labels[field]}: ${values[field]}`).join(", ");
+  return answer.charAt(0).toUpperCase() + answer.slice(1) + ".";
 }
 
 type MobileCapabilityDefinition = { id: string; available: boolean; summary: string };
@@ -1283,7 +1417,11 @@ function nativeArchi(text: string, attachmentParts: any[], history: any[], conte
   const informationSubject = researchSubject(text);
   if (context.intent.name === "ask_information" && informationSubject) return `Sí, puedo ayudarte con ${informationSubject}. ¿Qué quieres saber exactamente?`;
   if (/\b(plan|pasos|organiza|organizar|lista)\b/.test(normalized)) return `Plan propuesto para “${compactText(text, 180)}”:\n\n1. Define el resultado exacto y el límite de tiempo.\n2. Reúne los datos o archivos necesarios.\n3. Divide el trabajo en una primera versión verificable.\n4. Ejecuta y comprueba cada resultado antes de continuar.\n5. Cierra con una revisión y una lista de pendientes reales.`;
-  return contextualAnswer(context) || "Necesito un poco más de detalle: ¿qué quieres que revise o haga?";
+  const contextual = contextualAnswer(context);
+  if (contextual) return contextual;
+  const sufficiency = semanticSufficiency(text, context);
+  if (sufficiency.score >= .6) return "Tu solicitud ya tiene suficiente detalle. No tengo una herramienta activa en este teléfono para completarla con fiabilidad, pero no necesitas repetirla ni explicarla otra vez.";
+  return "¿Qué necesitas saber o hacer?";
 }
 
 async function command(req: Request, payload: any, token: string): Promise<Response> {
@@ -1296,6 +1434,7 @@ async function command(req: Request, payload: any, token: string): Promise<Respo
   const context = interpretContext(text, history);
   if (context.clarification_required || context.requires_confirmation) return reply(req, { ok: true, message: clarificationAnswer(context), context_interpretation: context, attachments_consumed: true });
   const effectiveText = context.interpreted_request;
+  const requested = requestedCapabilities(effectiveText);
   const requestedImage = imageCreationPrompt(effectiveText);
   if (requestedImage) return generateEphemeralImage(req, requestedImage, context);
   if (requestsFileTransferToPc(effectiveText)) {
@@ -1369,10 +1508,37 @@ async function command(req: Request, payload: any, token: string): Promise<Respo
     const attachment = await readAttachment(String(id));
     if (attachment) { parts.push(attachment.content); cleanup.push(attachment.path); }
   }
+  if (requested.includes("weather")) {
+    const knownLocation = [...context.entities, ...history.flatMap(item => contextEntities(String(item.body || item.content || "")))].reverse().find(item => item.entity_type === "location");
+    if (!knownLocation) {
+      return reply(req, {
+        ok: true,
+        message: requested.includes("daily_brief")
+          ? "Puedo preparar el resumen del día y añadir el clima. Solo necesito tu ciudad para darte datos reales, no una ubicación inventada."
+          : "¿De qué ciudad quieres el clima? Necesito la ubicación para darte datos reales.",
+        context_interpretation: { ...context, context_sources: [...new Set([...context.context_sources, "capability_composition"])], planned_capabilities: requested },
+        engine: "archeon-capability-planner", intelligence: payload.intelligence || "medium", attachments_consumed: true,
+      });
+    }
+    const weather = await currentWeatherAnswer(knownLocation.name);
+    if (!weather) return reply(req, { ok: true, message: `No pude verificar el clima de ${knownLocation.name} en este momento. Inténtalo de nuevo en unos minutos.`, context_interpretation: context, engine: "archeon-current-weather", attachments_consumed: true });
+    const daily = requested.includes("daily_brief") ? await currentNewsAnswer("noticias de hoy") : null;
+    return reply(req, {
+      ok: true, message: daily ? `${weather}\n\n${daily.message}` : weather,
+      news_sources: daily?.sources || [],
+      context_interpretation: { ...context, context_sources: [...new Set([...context.context_sources, "capability_composition"])], planned_capabilities: requested },
+      engine: "archeon-capability-planner", intelligence: payload.intelligence || "medium", attachments_consumed: true,
+    });
+  }
   const currentNews = context.intent.name === "news_search" ? await currentNewsAnswer(effectiveText) : null;
   if (currentNews) {
     await Promise.allSettled(cleanup.map(path => supabase(`/storage/v1/object/archeon-cloud/${path}`, { method: "DELETE" }, "", true)));
-    return reply(req, { ok: true, message: currentNews, context_interpretation: context, engine: "archeon-current-news", intelligence: payload.intelligence || "medium", attachments_consumed: true });
+    return reply(req, { ok: true, message: currentNews.message, news_sources: currentNews.sources, context_interpretation: context, engine: "archeon-current-news", intelligence: payload.intelligence || "medium", attachments_consumed: true });
+  }
+  const temporal = temporalResolution(effectiveText, history.filter(item => item?.role === "user").map(item => String(item.body || item.content || "")));
+  if (context.intent.name === "date_time_query" && temporal) {
+    await Promise.allSettled(cleanup.map(path => supabase(`/storage/v1/object/archeon-cloud/${path}`, { method: "DELETE" }, "", true)));
+    return reply(req, { ok: true, message: currentDateTimeAnswer(effectiveText, payload, temporal), context_interpretation: context, engine: "archeon-local-time", intelligence: payload.intelligence || "medium", attachments_consumed: true });
   }
   const followupSubject = contextualResearchSubject(effectiveText, history);
   const researched = await researchedAnswer(followupSubject ? `investiga ${followupSubject}` : effectiveText, Boolean(followupSubject));

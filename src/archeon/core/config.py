@@ -95,6 +95,7 @@ class AppearanceConfig:
     text_scale: int = 100
     command_input_visible: bool = True
     status_indicator_visible: bool = True
+    desktop_onboarding_completed: bool = False
     interface_layout: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
@@ -572,6 +573,7 @@ class ConfigurationManager(ManagedComponent):
                 text_scale=max(75, min(200, int(appearance.get("text_scale", 100)))),
                 command_input_visible=bool(appearance.get("command_input_visible", True)),
                 status_indicator_visible=bool(appearance.get("status_indicator_visible", True)),
+                desktop_onboarding_completed=bool(appearance.get("desktop_onboarding_completed", False)),
                 interface_layout=interface_layout,
             ),
             assistant=AssistantConfig(
