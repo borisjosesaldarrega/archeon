@@ -175,6 +175,11 @@ class MobileCloudRemoteTests(unittest.TestCase):
         self.assertNotIn('Entiendo que continúas con', source)
         self.assertIn('name: "ask_information"', source)
         self.assertIn('sabes|conoces|quien es', source)
+        self.assertIn('name: "create_artifact"', source)
+        self.assertIn('governing: true', source)
+        self.assertIn('definition.governing ? (1 - first)', source)
+        self.assertIn('context.intent.name === "create_artifact" ? null : mediaQuery', source)
+        self.assertIn('name: "casual_conversation"', source)
 
     def test_chat_titles_use_clean_context_and_empty_chats_are_not_persisted(self) -> None:
         source = Path("supabase/functions/archeon-mobile-api/index.ts").read_text(encoding="utf-8")
@@ -197,6 +202,21 @@ class MobileCloudRemoteTests(unittest.TestCase):
         stylesheet = Path("src/archeon/ui/mobile-fixes.css").read_text(encoding="utf-8")
         self.assertIn('grid-template-rows: auto auto auto minmax(0, 1fr)', stylesheet)
         self.assertIn('.conversation-search { height: 43px; min-height: 43px; max-height: 43px;', stylesheet)
+
+    def test_mobile_activation_settings_are_device_aware_and_account_synced(self) -> None:
+        source = Path("supabase/functions/archeon-mobile-api/index.ts").read_text(encoding="utf-8")
+        mobile = Path("src/archeon/ui/mobile.js").read_text(encoding="utf-8")
+        html = Path("src/archeon/ui/mobile.html").read_text(encoding="utf-8")
+        self.assertIn("async function mobileSettings", source)
+        self.assertIn('"account_settings"', source)
+        self.assertIn('"device_settings"', source)
+        self.assertIn("context_language_enabled", source)
+        self.assertIn("background_enabled", source)
+        self.assertIn("function updateMobileActivationState", mobile)
+        self.assertIn("syncMobileActivation", mobile)
+        self.assertIn('id="mobile-context-language"', html)
+        self.assertIn("https://archeon.netlify.app/", html)
+        self.assertIn('data:image/svg+xml;charset=utf-8', mobile)
 
     def test_device_session_revocation_is_bound_to_jwt_session_id(self) -> None:
         source = Path("supabase/functions/archeon-mobile-api/index.ts").read_text(encoding="utf-8")

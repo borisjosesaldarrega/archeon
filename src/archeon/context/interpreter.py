@@ -58,6 +58,7 @@ class IntentDefinition:
     compatible_entity_types: tuple[str, ...] = ()
     sensitive: bool = False
     implicit_active_target: bool = False
+    governing: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,9 +100,10 @@ class ContextRegistry:
             TopicDefinition("web_browsing", "Navegación web", ("navegador", "web", "pagina", "youtube"), ("open", "close", "navigate")),
             TopicDefinition("applications", "Aplicaciones", ("aplicacion", "programa", "proceso"), ("open", "close", "restart")),
             TopicDefinition("network_security", "Red y seguridad", ("red", "ip", "puerto", "router", "firewall", "cortafuegos"), ("check_network_port", "diagnose")),
-            TopicDefinition("documents", "Archivos y documentos", ("archivo", "documento", "pdf", "carpeta", "proyecto"), ("open", "close", "find", "delete")),
+            TopicDefinition("documents", "Archivos y documentos", ("archivo", "documento", "pdf", "word", "docx", "carpeta", "proyecto"), ("open", "close", "find", "delete", "create_artifact")),
             TopicDefinition("programming", "Programación", ("codigo", "programar", "proyecto", "python", "java", "c++"), ("open", "inspect_version", "create")),
             TopicDefinition("general_information", "Información", ("sabes", "quien", "que es", "sobre", "informacion"), ("ask_information",)),
+            TopicDefinition("casual_conversation", "Conversación", ("hola", "saludo", "charla", "conversacion", "cuentas", "andas", "jaja", "jeje"), ("casual_conversation",)),
         )
         for topic in topics:
             registry.register_topic(topic)
@@ -120,6 +122,10 @@ class ContextRegistry:
             EntityDefinition("hardware.cpu", "hardware", "CPU", ("cpu", "procesador"), ("system_hardware",), ("inspect_system",)),
             EntityDefinition("hardware.gpu", "hardware", "GPU", ("gpu", "tarjeta grafica"), ("system_hardware",), ("inspect_system",)),
             EntityDefinition("hardware.disk", "hardware", "Disco", ("disco", "almacenamiento"), ("system_hardware",), ("inspect_system",)),
+            EntityDefinition("artifact.pdf", "artifact_format", "PDF", ("pdf",), ("documents",), ("create_artifact", "open")),
+            EntityDefinition("artifact.document", "artifact_format", "Documento", ("documento", "word", "docx"), ("documents",), ("create_artifact", "open")),
+            EntityDefinition("artifact.presentation", "artifact_format", "Presentación", ("presentacion", "diapositivas", "powerpoint", "pptx"), ("documents",), ("create_artifact", "open")),
+            EntityDefinition("artifact.spreadsheet", "artifact_format", "Hoja de cálculo", ("hoja de calculo", "excel", "xlsx"), ("documents",), ("create_artifact", "open")),
         )
         for entity in entities:
             registry.register_entity(entity)
@@ -136,8 +142,10 @@ class ContextRegistry:
             IntentDefinition("restart", (r"\b(?:reinicia|reinicialo|reiniciar)\b",), ("server", "application"), True),
             IntentDefinition("delete", (r"\b(?:borra|elimina|formatea|desinstala)\b",), ("file", "application"), True),
             IntentDefinition("find", (r"\b(?:busca|encuentra|localiza)\b",), ("file", "project")),
-            IntentDefinition("create", (r"\b(?:crea|genera|programa)\b",), ("file", "project")),
+            IntentDefinition("create_artifact", (r"\b(?:crea(?:me)?|genera(?:me)?|haz(?:me)?|elabora|redacta|disena|escribe)\b",), ("artifact_format",), False, False, True),
+            IntentDefinition("create", (r"\b(?:crea(?:me)?|genera(?:me)?|programa)\b",), ("file", "project"), False, False, True),
             IntentDefinition("ask_information", (r"\b(?:sabes|conoces|quien es|que es|hablame de|explicame)\b",), ("person", "artist", "topic")),
+            IntentDefinition("casual_conversation", (r"\b(?:hola|buenas|como (?:estas|andas|va todo)|que (?:tal|te cuentas)|charlemos|conversemos|jaja+|jeje+)\b",), ()),
         )
         for intent in intents:
             registry.register_intent(intent)
@@ -517,8 +525,12 @@ class ContextInterpreter:
                 continue
             hits = len(matches)
             compatibility = bool(entity_types & set(definition.compatible_entity_types))
-            last_position = max(match.start() for match in matches) / max(1, len(folded))
-            scored.append((definition.name, min(1.0, 0.78 + hits * 0.08 + (0.08 if compatibility else 0.0) + last_position * 0.06)))
+            first_position = min(match.start() for match in matches) / max(1, len(folded))
+            score = 0.68 + hits * 0.06 + (0.14 if compatibility else 0.0)
+            score += ((1.0 - first_position) * 0.10 if definition.governing else first_position * 0.08)
+            if definition.governing and compatibility:
+                score += 0.12
+            scored.append((definition.name, min(1.0, score)))
         if scored:
             return max(scored, key=lambda item: item[1])
         if entities and thread and thread.intents:

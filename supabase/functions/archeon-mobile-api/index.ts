@@ -352,6 +352,67 @@ function resolveNamedDevice(devices: any[], label: string): { device: any | null
   return { device: scored[0].device, ambiguous: false };
 }
 
+function mergeSettings(base: any, changes: any): Record<string, any> {
+  const result = base && typeof base === "object" && !Array.isArray(base) ? { ...base } : {};
+  if (!changes || typeof changes !== "object" || Array.isArray(changes)) return result;
+  for (const [key, value] of Object.entries(changes)) {
+    result[key] = value && typeof value === "object" && !Array.isArray(value)
+      ? mergeSettings(result[key], value) : value;
+  }
+  return result;
+}
+
+function publicMobileSettings(account: any = {}, device: any = {}): Record<string, any> {
+  const assistant = account.assistant && typeof account.assistant === "object" ? account.assistant : {};
+  const intelligence = account.intelligence && typeof account.intelligence === "object" ? account.intelligence : {};
+  const activation = device.activation && typeof device.activation === "object" ? device.activation : {};
+  return {
+    assistant: {
+      wake_name: String(assistant.wake_name || "ARCHI").slice(0, 24),
+      context_language_enabled: assistant.context_language_enabled !== false,
+      configured: Object.prototype.hasOwnProperty.call(assistant, "wake_name"),
+    },
+    intelligence: {
+      profile: String(intelligence.profile || "balanced"),
+      context_size: Math.max(2048, Math.min(8192, Number(intelligence.context_size) || 4096)),
+      max_tokens: Math.max(512, Math.min(2048, Number(intelligence.max_tokens) || 1024)),
+      conversation_turns: Math.max(2, Math.min(8, Number(intelligence.conversation_turns) || 4)),
+    },
+    activation: {
+      wake_word_enabled: Boolean(activation.wake_word_enabled),
+      background_enabled: Boolean(activation.background_enabled),
+      configured: Object.prototype.hasOwnProperty.call(activation, "wake_word_enabled") || Object.prototype.hasOwnProperty.call(activation, "background_enabled"),
+    },
+  };
+}
+
+async function mobileSettings(req: Request, token: string, user: any, changes: any = null): Promise<Record<string, any>> {
+  if (!user) return publicMobileSettings(changes || {}, changes || {});
+  const userId = String(user.id), current = await ensureMobileDevice(req, token, userId);
+  if (!current) throw new Error("current_device_not_registered");
+  const installation = String(req.headers.get("x-archeon-installation") || "").slice(0, 128);
+  const accountRows = await rest(token, "account_settings", `?user_id=eq.${encodeURIComponent(userId)}&select=settings,version&limit=1`);
+  const deviceRows = await rest(token, "device_settings", `?user_id=eq.${encodeURIComponent(userId)}&device_id=eq.${encodeURIComponent(installation)}&select=settings,version&limit=1`);
+  let account = accountRows?.[0]?.settings || {}, device = deviceRows?.[0]?.settings || {};
+  if (changes && typeof changes === "object" && !Array.isArray(changes)) {
+    const assistantChanges = changes.assistant && typeof changes.assistant === "object" ? {
+      ...(typeof changes.assistant.wake_name === "string" ? { wake_name: changes.assistant.wake_name.trim().slice(0, 24) || "ARCHI" } : {}),
+      ...(typeof changes.assistant.context_language_enabled === "boolean" ? { context_language_enabled: changes.assistant.context_language_enabled } : {}),
+    } : {};
+    const intelligenceChanges = changes.intelligence && typeof changes.intelligence === "object" ? changes.intelligence : {};
+    const activationChanges = changes.activation && typeof changes.activation === "object" ? {
+      ...(typeof changes.activation.wake_word_enabled === "boolean" ? { wake_word_enabled: changes.activation.wake_word_enabled } : {}),
+      ...(typeof changes.activation.background_enabled === "boolean" ? { background_enabled: changes.activation.background_enabled } : {}),
+    } : {};
+    account = mergeSettings(account, { assistant: assistantChanges, intelligence: intelligenceChanges });
+    device = mergeSettings(device, { activation: activationChanges });
+    const updatedAt = new Date().toISOString();
+    await rest(token, "account_settings", "?on_conflict=user_id", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ user_id: userId, settings: account, version: Math.max(0, Number(accountRows?.[0]?.version) || 0) + 1, updated_at: updatedAt }) });
+    await rest(token, "device_settings", "?on_conflict=user_id,device_id", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ user_id: userId, device_id: installation, device_name: String(current.display_name || "Android device").slice(0, 120), settings: device, version: Math.max(0, Number(deviceRows?.[0]?.version) || 0) + 1, updated_at: updatedAt }) });
+  }
+  return publicMobileSettings(account, device);
+}
+
 function remoteFileIntent(text: string): { query: string; targetLabel: string } | null {
   const value = text.trim().replace(/[.!?¡¿]+$/g, "");
   const directed = value.match(/^(?:p[aá]same|m[aá]ndame|env[ií]ame|traeme|tr[aá]eme|transfiere)\s+(?:(?:el|la)\s+)?(?:(?:archivo|documento|pdf)\s+)?(?:con\s+nombre\s+)?["“”']?(.+?)["“”']?\s+(?:de|desde|que\s+(?:lo\s+)?tiene)\s+([\p{L}\p{N}][\p{L}\p{N} _.·-]{1,59})$/iu);
@@ -376,8 +437,8 @@ async function action(req: Request, payload: any, token: string): Promise<Respon
   const guest = await validGuest(token);
   if (!user && !guest) return reply(req, { ok: false, error: "session_required" }, 401);
   try {
-    if (name === "settings.get") return reply(req, { ok: true, settings: { intelligence: { profile: "balanced", context_size: 4096, max_tokens: 1024, conversation_turns: 4 } } });
-    if (name === "settings.update") return reply(req, { ok: true, settings: payload.changes ?? {} });
+    if (name === "settings.get") return reply(req, { ok: true, settings: await mobileSettings(req, token, user) });
+    if (name === "settings.update") return reply(req, { ok: true, settings: await mobileSettings(req, token, user, payload.changes ?? {}) });
     if (name === "permissions.list") return reply(req, { ok: true, permissions: [] });
     if (name === "permissions.update") return reply(req, { ok: true, permissions: [] });
     if (name.startsWith("media.") || name === "attachment.remove") return reply(req, { ok: true, media: { state: "stopped" } });
@@ -888,7 +949,7 @@ function contextualResearchSubject(text: string, history: any[]): string {
 type Evidence = "KNOWN" | "INFERRED" | "UNKNOWN";
 type ContextEntity = { entity_id: string; entity_type: string; name: string; aliases: string[]; attributes: Record<string, unknown>; status: Evidence; confidence: number; source: string; position: number };
 type EntityDefinition = { entity_id: string; entity_type: string; name: string; aliases: string[]; topic_hints: string[]; compatible_intents: string[]; attributes?: Record<string, unknown> };
-type IntentDefinition = { name: string; patterns: RegExp[]; compatible_types: string[]; sensitive?: boolean; implicit_active_target?: boolean };
+type IntentDefinition = { name: string; patterns: RegExp[]; compatible_types: string[]; sensitive?: boolean; implicit_active_target?: boolean; governing?: boolean };
 type TopicDefinition = { topic_id: string; name: string; concepts: string[]; compatible_intents: string[] };
 type ContextThread = { topic_id: string; messages: string[]; entities: ContextEntity[]; intents: string[]; last_turn: number };
 type ContextResult = {
@@ -907,9 +968,10 @@ const CONTEXT_TOPICS: TopicDefinition[] = [
   { topic_id: "web_browsing", name: "Navegación web", concepts: ["navegador", "web", "pagina", "youtube"], compatible_intents: ["open", "close", "navigate"] },
   { topic_id: "applications", name: "Aplicaciones", concepts: ["aplicacion", "programa", "proceso"], compatible_intents: ["open", "close", "restart"] },
   { topic_id: "network_security", name: "Red y seguridad", concepts: ["red", "ip", "puerto", "router", "firewall", "cortafuegos"], compatible_intents: ["check_network_port", "diagnose"] },
-  { topic_id: "documents", name: "Archivos y documentos", concepts: ["archivo", "documento", "pdf", "carpeta", "proyecto"], compatible_intents: ["open", "close", "find", "delete"] },
+  { topic_id: "documents", name: "Archivos y documentos", concepts: ["archivo", "documento", "pdf", "word", "docx", "carpeta", "proyecto"], compatible_intents: ["open", "close", "find", "delete", "create_artifact"] },
   { topic_id: "programming", name: "Programación", concepts: ["codigo", "programar", "proyecto", "python", "java", "c++"], compatible_intents: ["open", "inspect_version", "create"] },
   { topic_id: "general_information", name: "Información", concepts: ["sabes", "quien", "que es", "sobre", "informacion"], compatible_intents: ["ask_information"] },
+  { topic_id: "casual_conversation", name: "Conversación", concepts: ["hola", "saludo", "charla", "conversacion", "cuentas", "andas", "jaja", "jeje"], compatible_intents: ["casual_conversation"] },
 ];
 const CONTEXT_ENTITIES: EntityDefinition[] = [
   { entity_id: "app.spotify", entity_type: "application", name: "Spotify", aliases: ["spotify", "spoti", "espotifai"], topic_hints: ["media_playback"], compatible_intents: ["open", "close", "play_media"] },
@@ -926,6 +988,10 @@ const CONTEXT_ENTITIES: EntityDefinition[] = [
   { entity_id: "hardware.cpu", entity_type: "hardware", name: "CPU", aliases: ["cpu", "procesador"], topic_hints: ["system_hardware"], compatible_intents: ["inspect_system"] },
   { entity_id: "hardware.gpu", entity_type: "hardware", name: "GPU", aliases: ["gpu", "tarjeta grafica"], topic_hints: ["system_hardware"], compatible_intents: ["inspect_system"] },
   { entity_id: "hardware.disk", entity_type: "hardware", name: "Disco", aliases: ["disco", "almacenamiento"], topic_hints: ["system_hardware"], compatible_intents: ["inspect_system"] },
+  { entity_id: "artifact.pdf", entity_type: "artifact_format", name: "PDF", aliases: ["pdf"], topic_hints: ["documents"], compatible_intents: ["create_artifact", "open"] },
+  { entity_id: "artifact.document", entity_type: "artifact_format", name: "Documento", aliases: ["documento", "word", "docx"], topic_hints: ["documents"], compatible_intents: ["create_artifact", "open"] },
+  { entity_id: "artifact.presentation", entity_type: "artifact_format", name: "Presentación", aliases: ["presentacion", "diapositivas", "powerpoint", "pptx"], topic_hints: ["documents"], compatible_intents: ["create_artifact", "open"] },
+  { entity_id: "artifact.spreadsheet", entity_type: "artifact_format", name: "Hoja de cálculo", aliases: ["hoja de calculo", "excel", "xlsx"], topic_hints: ["documents"], compatible_intents: ["create_artifact", "open"] },
 ];
 const CONTEXT_INTENTS: IntentDefinition[] = [
   { name: "open", patterns: [/\b(?:abre|inicia|ejecuta|lanza)\b/u], compatible_types: ["application", "website", "file", "project"] },
@@ -940,8 +1006,10 @@ const CONTEXT_INTENTS: IntentDefinition[] = [
   { name: "restart", patterns: [/\b(?:reinicia|reinicialo|reiniciar)\b/u], compatible_types: ["server", "application"], sensitive: true },
   { name: "delete", patterns: [/\b(?:borra|elimina|formatea|desinstala)\b/u], compatible_types: ["file", "application"], sensitive: true },
   { name: "find", patterns: [/\b(?:busca|encuentra|localiza)\b/u], compatible_types: ["file", "project"] },
-  { name: "create", patterns: [/\b(?:crea|genera|programa)\b/u], compatible_types: ["file", "project"] },
+  { name: "create_artifact", patterns: [/\b(?:crea(?:me)?|genera(?:me)?|haz(?:me)?|elabora|redacta|disena|escribe)\b/u], compatible_types: ["artifact_format"], governing: true },
+  { name: "create", patterns: [/\b(?:crea(?:me)?|genera(?:me)?|programa)\b/u], compatible_types: ["file", "project"], governing: true },
   { name: "ask_information", patterns: [/\b(?:sabes|conoces|quien es|que es|hablame de|explicame)\b/u], compatible_types: ["person", "artist", "topic"] },
+  { name: "casual_conversation", patterns: [/\b(?:hola|buenas|como (?:estas|andas|va todo)|que (?:tal|te cuentas)|charlemos|conversemos|jaja+|jeje+)\b/u], compatible_types: [] },
 ];
 const CONTEXT_NORMALIZATIONS: Array<[RegExp, string]> = [[/\bespotifai\b/giu, "Spotify"], [/\bspoti\b/giu, "Spotify"], [/\blikin par\b/giu, "Linkin Park"], [/\blikin\b/giu, "Linkin Park"], [/\bcansion\b/giu, "canción"]];
 
@@ -970,8 +1038,10 @@ function contextIntent(value: string, entities: ContextEntity[], previous = ""):
     const matches = definition.patterns.map(pattern => pattern.exec(text)).filter(Boolean) as RegExpExecArray[];
     if (!matches.length) return [];
     const compatibility = definition.compatible_types.some(type => types.has(type));
-    const last = Math.max(...matches.map(match => match.index)) / Math.max(1, text.length);
-    return [{ name: definition.name, confidence: Math.min(1, .78 + matches.length * .08 + (compatibility ? .08 : 0) + last * .06) }];
+    const first = Math.min(...matches.map(match => match.index)) / Math.max(1, text.length);
+    let confidence = .68 + matches.length * .06 + (compatibility ? .14 : 0) + (definition.governing ? (1 - first) * .10 : first * .08);
+    if (definition.governing && compatibility) confidence += .12;
+    return [{ name: definition.name, confidence: Math.min(1, confidence) }];
   });
   if (scored.length) return scored.sort((a, b) => b.confidence - a.confidence)[0];
   const prior = CONTEXT_INTENTS.find(item => item.name === previous);
@@ -1151,7 +1221,9 @@ function nativeArchi(text: string, attachmentParts: any[], history: any[], conte
   if (/\b(resume|resumen|resumir|sintetiza)\b/.test(normalized) && attachmentText) return `Resumen:\n\n${extractiveSummary(attachmentText)}`;
   if (hasImage) return "Recibí la imagen correctamente en el mismo chat. El analizador visual propio de ARCHI aún no está desplegado en el runtime móvil, así que no voy a fingir una interpretación.";
   if (attachmentText) return `Leí el contenido adjunto. Sus puntos principales son:\n\n${extractiveSummary(attachmentText)}`;
-  if (/\b(hola|buenas|buenos dias|buenas tardes|buenas noches)\b/.test(normalized)) return "Hola, soy ARCHI. Estoy funcionando desde el servicio independiente de ARCHEON; no necesito que tu PC esté encendida.";
+  if (context.intent.name === "casual_conversation") return /\b(?:hola|buenas|buenos dias|buenas tardes|buenas noches)\b/.test(normalized)
+    ? "Hola. Aquí estoy, ¿qué hacemos hoy?"
+    : "Todo bien por aquí, listo para conversar o ayudarte con lo que tengas en mente. ¿Y tú qué tal?";
   if (/\b(que puedes hacer|ayuda|capacidades)\b/.test(normalized)) return "Puedo mantener tus chats, trabajar con texto y archivos, reproducir música con modo DJ, usar dictado y conversación por voz, y sincronizar Cloud y dispositivos. Las acciones siempre informan su resultado real.";
   const informationSubject = researchSubject(text);
   if (context.intent.name === "ask_information" && informationSubject) return `Sí, puedo ayudarte con ${informationSubject}. ¿Qué quieres saber exactamente?`;
@@ -1228,7 +1300,7 @@ async function command(req: Request, payload: any, token: string): Promise<Respo
     const rows = await rest(token, "archeon_remote_commands", "?select=id,state", { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify({ id, user_id: user.id, source_device_id: source.id, target_device_id: target.id, action: remote.action, arguments: { query: remote.query }, risk: "standard", state: "queued", idempotency_key: idempotency, nonce, signature, expires_at: expires }) });
     return reply(req, { ok: true, message: `Envié la orden a ${target.display_name}.`, remote_command: rows[0], context_interpretation: context, attachments_consumed: true });
   }
-  const music = mediaQuery(effectiveText);
+  const music = context.intent.name === "create_artifact" ? null : mediaQuery(effectiveText);
   if (music) {
     const owned = await findOwnedMusic(token, music);
     const queue = owned.length ? owned : await findMusic(music);

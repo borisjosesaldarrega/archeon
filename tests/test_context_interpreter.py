@@ -171,3 +171,46 @@ def test_snapshot_is_ready_for_context_inspector() -> None:
     assert snapshot["active_thread"] == "media_playback"
     assert "minecraft_server" in snapshot["suspended_threads"]
     assert snapshot["topic_threads"]
+
+
+def test_explicit_artifact_intent_overrides_recent_media_thread() -> None:
+    result = run(
+        ContextInterpreter(),
+        "pon un video de Messi",
+        "créame un PDF sobre Metro Exodus",
+    )
+    assert result.intent["name"] == "create_artifact"
+    assert result.topic["id"] == "documents"
+    assert result.resolution == ThreadResolution.CREATE_NEW_THREAD
+
+
+def test_artifact_content_does_not_become_media_action() -> None:
+    result = run(
+        ContextInterpreter(),
+        "pon música",
+        "hazme un documento de Word con una lista de canciones",
+    )
+    assert result.intent["name"] == "create_artifact"
+    assert result.topic["id"] == "documents"
+    assert result.interpreted_request.startswith("hazme un documento")
+
+
+def test_long_editorial_request_keeps_one_root_artifact_intent() -> None:
+    result = run(
+        ContextInterpreter(),
+        "reproduce un video de fútbol",
+        (
+            "créame un documento en PDF con el nombre Editorial; pon una imagen de Messi, "
+            "dos futbolistas más, sus logros, Metro Exodus, logos y un top 10 de juegos"
+        ),
+    )
+    assert result.intent["name"] == "create_artifact"
+    assert result.topic["id"] == "documents"
+    assert result.normalized_input == result.interpreted_request
+
+
+def test_casual_conversation_does_not_repeat_previous_action() -> None:
+    result = run(ContextInterpreter(), "abre YouTube", "qué te cuentas")
+    assert result.intent["name"] == "casual_conversation"
+    assert result.topic["id"] == "casual_conversation"
+    assert result.interpreted_request == "qué te cuentas"

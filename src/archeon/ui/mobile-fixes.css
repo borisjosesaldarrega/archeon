@@ -260,6 +260,19 @@
   font-size: 12px;
 }
 
+.mobile-settings-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+.mobile-settings-heading > div { display:grid; gap:4px; }
+.mobile-state-badge { flex:0 0 auto; padding:4px 8px; border:1px solid var(--line); border-radius:999px; color:var(--muted); font-size:10px; font-weight:700; text-transform:uppercase; }
+.mobile-state-badge.active { border-color:color-mix(in srgb,var(--accent) 44%,var(--line)); background:color-mix(in srgb,var(--accent) 9%,transparent); color:var(--accent); }
+.mobile-check span { display:block; }
+.mobile-check strong,.mobile-check small { display:block; }
+.mobile-check strong { color:var(--text); font-size:12px; }
+.mobile-check small { margin-top:3px; color:var(--muted); font-size:10px; line-height:1.35; }
+.mobile-extension-card { grid-template-columns:82px minmax(0,1fr); align-items:center; }
+.mobile-extension-card > img { width:82px; height:82px; object-fit:contain; filter:drop-shadow(0 0 14px color-mix(in srgb,var(--accent) 25%,transparent)); }
+.mobile-extension-card > div { display:grid; gap:6px; }
+.mobile-extension-card a { width:max-content; max-width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:9px; color:var(--accent); text-decoration:none; font-size:11px; }
+
 .settings-actions {
   display: grid;
   grid-template-columns: 1fr 1fr;

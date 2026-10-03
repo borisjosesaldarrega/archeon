@@ -365,19 +365,19 @@
               <p class="provider-note" data-i18n="accessibility.shortcut_note">Atajo global dentro de ARCHEON: Ctrl + Alt + M. La pausa bloquea órdenes habladas y solo acepta la frase configurada para reanudar.</p>
             </section>
             <section class="settings-section" data-settings-panel="activation" data-search-terms="activación wake word nombre escucha contexto voz">
-              <h3>Activación</h3><p>Controla cómo y cuándo ARCHEON empieza a escuchar.</p>
-              <label><span data-i18n="settings.wake_name">Nombre de activación</span><input id="settings-wake-name" maxlength="24"></label>
-              <label class="check-row"><input id="settings-wake-enabled" type="checkbox"><span data-i18n="settings.wake_enabled">Activación local por voz</span></label>
-              <label class="check-row"><input id="settings-context-language" type="checkbox"><span data-i18n="settings.context_language">Responder según el idioma del contexto</span></label>
+              <div class="settings-section-heading"><div><h3>Activación</h3><p>Elige cómo llamar a ARCHEON y cuándo debe escuchar en este PC.</p></div><span id="settings-activation-state" class="settings-state-badge">Desactivada</span></div>
+              <div class="activation-settings-card">
+                <label class="activation-name"><span data-i18n="settings.wake_name">Nombre de activación</span><input id="settings-wake-name" maxlength="24" placeholder="ARCHI" autocomplete="off"><small>Usa una palabra corta y fácil de distinguir.</small></label>
+                <div class="activation-options">
+                  <label class="check-row"><input id="settings-wake-enabled" type="checkbox"><span><strong data-i18n="settings.wake_enabled">Activación local por voz</strong><small>Escucha el nombre elegido mediante el micrófono de este PC.</small></span></label>
+                  <label class="check-row"><input id="settings-context-language" type="checkbox"><span><strong data-i18n="settings.context_language">Responder según el idioma del contexto</strong><small>Adapta la respuesta al idioma que estés usando.</small></span></label>
+                </div>
+              </div>
+              <div class="settings-inline-note"><span aria-hidden="true">●</span><p id="settings-activation-help">La detección se procesa localmente. Puedes elegir el micrófono y probarlo en Voz y audio.</p><button id="settings-open-voice" class="ghost-action" type="button">Voz y audio</button></div>
             </section>
             <section class="settings-section" data-settings-panel="privacy" data-search-terms="privacidad cloud nube datos sincronización cuenta">
-              <h3 data-i18n="privacy.title">Sincronización y datos</h3><p data-i18n="privacy.description">ARCHI procesa la inteligencia general en este dispositivo. La nube no se utiliza como proveedor de IA.</p>
-              <div class="account-only session-settings">
-                <label class="check-row"><input id="settings-sync-enabled" type="checkbox"><span>Sincronizar preferencias con mi cuenta</span></label>
-                <button id="settings-sync-now" class="outline" type="button">Sincronizar ahora</button>
-                <p id="settings-sync-status" class="provider-note" role="status"></p>
-                <p class="provider-note">La sincronización guarda preferencias; no envía modelos, audio, pantallas ni rutas locales.</p>
-              </div>
+              <h3 data-i18n="privacy.title">Privacidad y datos</h3><p data-i18n="privacy.description">ARCHI procesa la inteligencia general en este dispositivo. La nube no se utiliza como proveedor de IA.</p>
+              <div class="privacy-summary"><strong>Procesamiento local por defecto</strong><p>El audio, la pantalla, los modelos y las rutas locales no se suben como parte de la sincronización de preferencias.</p></div>
               <div class="guest-only session-settings" hidden><strong data-i18n="privacy.local_preferences">Preferencias locales</strong><p class="provider-note" data-i18n="privacy.guest_note">En modo invitado tus cambios se guardan únicamente en este dispositivo. Inicia sesión desde el menú si quieres sincronizarlos.</p></div>
             </section>
             <section class="settings-section" data-settings-panel="music" data-search-terms="música canciones original remix cover directo versiones alternativas reproducción">
@@ -407,13 +407,17 @@
               <p class="provider-note">Los componentes internos están administrados y protegidos por ARCHEON; no requieren configuración manual.</p>
             </section>
             <section class="settings-section account-only" data-settings-panel="cloud" data-search-terms="cloud nube sincronización dispositivos lan relay remoto móvil archivos">
-              <h3 data-i18n="cloud.title">ARCHEON Cloud</h3><p data-i18n="cloud.description">Estado real de capacidades remotas. Ninguna función no configurada se ejecuta en segundo plano.</p>
-              <div id="settings-cloud-status" class="status-list" aria-live="polite"></div>
+              <div class="settings-section-heading"><div><h3 data-i18n="cloud.title">ARCHEON Cloud</h3><p>Administra qué se sincroniza con tu cuenta y entra a tus archivos y dispositivos.</p></div><span class="settings-state-badge connected">Cuenta conectada</span></div>
+              <div id="settings-cloud-status" class="cloud-settings-summary" aria-live="polite"></div>
+              <div class="cloud-preferences-card">
+                <label class="check-row"><input id="settings-sync-enabled" type="checkbox"><span><strong>Sincronizar preferencias con mi cuenta</strong><small>Mantiene nombre de activación, idioma, apariencia y preferencias compatibles entre dispositivos.</small></span></label>
+                <div class="settings-actions"><button id="settings-sync-now" class="outline" type="button">Sincronizar ahora</button><button id="settings-open-cloud" class="ghost-action" type="button">Abrir archivos y dispositivos</button></div>
+                <p id="settings-sync-status" class="provider-note" role="status"></p>
+              </div>
             </section>
             <section class="settings-section" data-settings-panel="extensions" data-search-terms="extensiones plugins instalar habilitar firma compatibilidad marketplace">
-              <h3 data-i18n="extensions.title">Extensiones</h3><p data-i18n="extensions.description">El motor local valida manifiesto, versión, compatibilidad, hash y firma antes de aislar cada extensión en otro proceso.</p>
-              <div id="settings-extensions-status" class="status-list" aria-live="polite"></div>
-              <p class="provider-note" data-i18n="extensions.note">Marketplace: diferido. No se instalarán paquetes sin un verificador de firma confiable configurado.</p>
+              <h3 data-i18n="extensions.title">Extensiones</h3><p>Las extensiones ampliarán ARCHEON sin mezclar sus permisos ni sus datos con el núcleo de la aplicación.</p>
+              <div id="settings-extensions-status" aria-live="polite"></div>
             </section>
             <section class="settings-section" data-settings-panel="updates" data-search-terms="actualizaciones versión descargar verificar instalar reiniciar notas">
               <h3 data-i18n="updates.title">Actualizaciones</h3><p data-i18n="updates.description">ARCHEON solo aceptará paquetes con hash y firma verificados antes de preparar un reinicio.</p>
