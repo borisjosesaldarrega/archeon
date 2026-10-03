@@ -44,6 +44,7 @@ import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.util.Rational;
 import android.util.Base64;
+import android.util.Log;
 
 import androidx.core.content.FileProvider;
 
@@ -545,11 +546,11 @@ public final class MainActivity extends Activity {
             speechMode = "wake".equals(mode) ? "wake" : ("conversation".equals(mode) ? "conversation" : "dictation");
             speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this);
             speechRecognizer.setRecognitionListener(new RecognitionListener() {
-                @Override public void onReadyForSpeech(Bundle params) { emitSpeech("listening", speechMode, "", ""); }
+                @Override public void onReadyForSpeech(Bundle params) { Log.i("ARCHEON-Voice", "[Voice] Listening started: " + speechMode); emitSpeech("listening", speechMode, "", ""); }
                 @Override public void onBeginningOfSpeech() { emitSpeech("listening", speechMode, "", ""); }
                 @Override public void onRmsChanged(float rmsdB) { }
                 @Override public void onBufferReceived(byte[] buffer) { }
-                @Override public void onEndOfSpeech() { emitSpeech("processing", speechMode, "", ""); }
+                @Override public void onEndOfSpeech() { Log.i("ARCHEON-Voice", "[Voice] Speech processing"); emitSpeech("processing", speechMode, "", ""); }
                 @Override public void onError(int error) {
                     String message = error == SpeechRecognizer.ERROR_NO_MATCH
                         ? "No entendí lo que dijiste." : "No se pudo reconocer la voz.";
@@ -558,6 +559,7 @@ public final class MainActivity extends Activity {
                 @Override public void onResults(Bundle results) {
                     ArrayList<String> matches = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
                     String text = matches == null || matches.isEmpty() ? "" : matches.get(0);
+                    Log.i("ARCHEON-Voice", "[Voice] STT transcript received: " + (!text.isBlank()));
                     if (text.isBlank()) emitSpeech("error", speechMode, "", "No entendí lo que dijiste.");
                     else emitSpeech("result", speechMode, text, "");
                 }
@@ -586,9 +588,11 @@ public final class MainActivity extends Activity {
 
     void speakNative(String text, String language) {
         if (text == null || text.isBlank()) return;
+        Log.i("ARCHEON-Voice", "[Voice] TTS requested");
         runOnUiThread(() -> {
             if (!textToSpeechReady || textToSpeech == null) {
-                emitSpeech("error", "conversation", "", "La voz de ARCHI no está disponible.");
+                Log.w("ARCHEON-Voice", "[Voice] TTS unavailable");
+                emitNativeEvent("tts", "{\"state\":\"unavailable\"}");
                 return;
             }
             cancelSpeechRecognizer();
@@ -606,7 +610,8 @@ public final class MainActivity extends Activity {
             int result = textToSpeech.speak(text, TextToSpeech.QUEUE_FLUSH, parameters, "archi-mobile-response");
             if (result == TextToSpeech.ERROR) {
                 abandonSpeechAudioFocus();
-                emitSpeech("error", "conversation", "", "Android no pudo iniciar la voz de ARCHI.");
+                Log.e("ARCHEON-Voice", "[Voice] TTS playback request failed");
+                emitNativeEvent("tts", "{\"state\":\"error\"}");
             }
         });
     }
@@ -655,6 +660,7 @@ public final class MainActivity extends Activity {
                 emitNativeEvent("tts", "{\"state\":\"unavailable\"}");
                 return;
             }
+            Log.i("ARCHEON-Voice", "[Voice] TTS ready: " + textToSpeechEngine);
             AudioAttributes attributes = new AudioAttributes.Builder()
                 // Some Samsung builds route USAGE_ASSISTANT to a muted or
                 // unavailable assistant path. ARCHI speech is user-requested
@@ -665,13 +671,16 @@ public final class MainActivity extends Activity {
             textToSpeech.setAudioAttributes(attributes);
             textToSpeech.setOnUtteranceProgressListener(new UtteranceProgressListener() {
                 @Override public void onStart(String utteranceId) {
+                    Log.i("ARCHEON-Voice", "[Voice] Playback started");
                     emitNativeEvent("tts", "{\"state\":\"speaking\"}");
                 }
                 @Override public void onDone(String utteranceId) {
+                    Log.i("ARCHEON-Voice", "[Voice] Playback completed");
                     abandonSpeechAudioFocus();
                     emitNativeEvent("tts", "{\"state\":\"completed\"}");
                 }
                 @Override public void onError(String utteranceId) {
+                    Log.e("ARCHEON-Voice", "[Voice] Playback error");
                     abandonSpeechAudioFocus();
                     emitNativeEvent("tts", "{\"state\":\"error\"}");
                 }
