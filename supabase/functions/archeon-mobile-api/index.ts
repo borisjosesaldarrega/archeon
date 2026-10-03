@@ -972,6 +972,8 @@ const CONTEXT_TOPICS: TopicDefinition[] = [
   { topic_id: "programming", name: "Programación", concepts: ["codigo", "programar", "proyecto", "python", "java", "c++"], compatible_intents: ["open", "inspect_version", "create"] },
   { topic_id: "general_information", name: "Información", concepts: ["sabes", "quien", "que es", "sobre", "informacion"], compatible_intents: ["ask_information"] },
   { topic_id: "casual_conversation", name: "Conversación", concepts: ["hola", "saludo", "charla", "conversacion", "cuentas", "andas", "jaja", "jeje"], compatible_intents: ["casual_conversation"] },
+  { topic_id: "current_news", name: "Noticias", concepts: ["noticia", "noticias", "actualidad", "hoy", "reciente", "localidad", "crimen"], compatible_intents: ["news_search"] },
+  { topic_id: "visual_input", name: "Contenido visual", concepts: ["imagen", "captura", "camara", "pantalla", "ves", "mira"], compatible_intents: ["inspect_visual"] },
 ];
 const CONTEXT_ENTITIES: EntityDefinition[] = [
   { entity_id: "app.spotify", entity_type: "application", name: "Spotify", aliases: ["spotify", "spoti", "espotifai"], topic_hints: ["media_playback"], compatible_intents: ["open", "close", "play_media"] },
@@ -1010,6 +1012,8 @@ const CONTEXT_INTENTS: IntentDefinition[] = [
   { name: "create", patterns: [/\b(?:crea(?:me)?|genera(?:me)?|programa)\b/u], compatible_types: ["file", "project"], governing: true },
   { name: "ask_information", patterns: [/\b(?:sabes|conoces|quien es|que es|hablame de|explicame)\b/u], compatible_types: ["person", "artist", "topic"] },
   { name: "casual_conversation", patterns: [/\b(?:hola|buenas|como (?:estas|andas|va todo)|que (?:tal|te cuentas)|charlemos|conversemos|jaja+|jeje+)\b/u], compatible_types: [] },
+  { name: "news_search", patterns: [/\b(?:noticias?|actualidad|que paso hoy|algo nuevo|sucesos recientes)\b/u], compatible_types: ["location"], governing: true },
+  { name: "inspect_visual", patterns: [/\b(?:puedes ver|que ves|mira|revisa|analiza|inspecciona)\b[^.]{0,100}\b(?:imagen|captura|camara|pantalla|dispositivo)\b/u], compatible_types: ["image", "screen", "camera", "device"] },
 ];
 const CONTEXT_NORMALIZATIONS: Array<[RegExp, string]> = [[/\bespotifai\b/giu, "Spotify"], [/\bspoti\b/giu, "Spotify"], [/\blikin par\b/giu, "Linkin Park"], [/\blikin\b/giu, "Linkin Park"], [/\bcansion\b/giu, "canción"]];
 
@@ -1029,6 +1033,8 @@ function contextEntities(value: string): ContextEntity[] {
   }
   const port = text.match(/\b(?:puerto\s*)?(\d{2,5})\b/u)?.[1];
   if (port) found.push({ entity_id: `network.port.${port}`, entity_type: "network_port", name: `Port ${port}`, aliases: [], attributes: { port: Number(port) }, status: "KNOWN", confidence: 1, source: "current_message", position: text.indexOf(port) });
+  const location = text.match(/\b(?:soy|vivo|estoy)\s+(?:de|en)\s+([\p{L}][\p{L}\s-]{2,80})$/u);
+  if (location) found.push({ entity_id: `location.${location[1].replace(/\s+/g, "_")}`, entity_type: "location", name: location[1].trim(), aliases: [], attributes: { label: location[1].trim() }, status: "KNOWN", confidence: 1, source: "current_message", position: location.index || 0 });
   return found.sort((a, b) => a.position - b.position);
 }
 
@@ -1192,6 +1198,54 @@ async function researchedAnswer(text: string, followup = false): Promise<Researc
   }
 }
 
+function decodeXml(value: string): string {
+  return value.replace(/^<!\[CDATA\[|\]\]>$/g, "").replace(/<[^>]+>/g, " ")
+    .replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'")
+    .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/\s+/g, " ").trim();
+}
+
+function rssValue(item: string, tag: string): string {
+  return decodeXml(item.match(new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${tag}>`, "iu"))?.[1] || "");
+}
+
+async function currentNewsAnswer(text: string): Promise<string | null> {
+  const clean = compactText(text.replace(/[¿?]/g, " "), 220);
+  const query = `${clean} ${/\bhoy\b/iu.test(clean) ? "when:1d" : "when:7d"}`.trim();
+  if (!query) return null;
+  try {
+    const parameters = new URLSearchParams({ q: query, hl: "es-419", gl: "EC", ceid: "EC:es-419" });
+    const response = await fetch(`https://news.google.com/rss/search?${parameters}`, {
+      headers: { Accept: "application/rss+xml, application/xml", "User-Agent": "ARCHEON/1.0 current-news" },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!response.ok) return null;
+    const xml = await response.text(), items = [...xml.matchAll(/<item>([\s\S]*?)<\/item>/giu)].slice(0, 4)
+      .map(match => ({ title: rssValue(match[1], "title"), link: rssValue(match[1], "link"), source: rssValue(match[1], "source") }))
+      .filter(item => item.title && /^https:\/\//i.test(item.link));
+    if (!items.length) return null;
+    return `Estas son las novedades recientes que encontré:\n\n${items.map(item => `- [${item.title}](${item.link})${item.source ? ` — ${item.source}` : ""}`).join("\n")}`;
+  } catch (_) {
+    return null;
+  }
+}
+
+type MobileCapabilityDefinition = { id: string; available: boolean; summary: string };
+const MOBILE_CAPABILITIES: MobileCapabilityDefinition[] = [
+  { id: "conversation", available: true, summary: "conversar y mantener el contexto de cada chat" },
+  { id: "files", available: true, summary: "trabajar con archivos y ARCHEON Cloud" },
+  { id: "music", available: true, summary: "reproducir música y usar el modo DJ" },
+  { id: "voice", available: true, summary: "recibir dictado y responder por voz" },
+  { id: "devices", available: true, summary: "enviar órdenes a dispositivos autorizados" },
+  { id: "images", available: true, summary: "generar imágenes temporales descargables" },
+  { id: "live_news", available: true, summary: "consultar noticias recientes con sus fuentes" },
+  { id: "vision", available: false, summary: "analizar directamente cámara o pantalla" },
+];
+
+function mobileCapabilitySummary(): string {
+  const available = MOBILE_CAPABILITIES.filter(item => item.available).map(item => item.summary);
+  return `Puedo ${available.slice(0, -1).join(", ")} y ${available.at(-1)}. Las capacidades dependen de los permisos y del dispositivo activo.`;
+}
+
 function contextualAnswer(context: ContextResult): string | null {
   const intent = context.intent.name, entities = context.entities;
   const byType = (type: string) => entities.find(item => item.entity_type === type);
@@ -1219,12 +1273,13 @@ function nativeArchi(text: string, attachmentParts: any[], history: any[], conte
   const attachmentText = attachmentParts.filter(part => part.type === "text").map(part => String(part.text || "")).join("\n");
   const hasImage = attachmentParts.some(part => part.type === "image_url");
   if (/\b(resume|resumen|resumir|sintetiza)\b/.test(normalized) && attachmentText) return `Resumen:\n\n${extractiveSummary(attachmentText)}`;
-  if (hasImage) return "Recibí la imagen correctamente en el mismo chat. El analizador visual propio de ARCHI aún no está desplegado en el runtime móvil, así que no voy a fingir una interpretación.";
+  if (hasImage) return "Recibí la imagen, pero el análisis visual todavía no está disponible en este teléfono. Puedo guardarla, enviarla o trabajar con su nombre y metadatos, pero no voy a inventar lo que contiene.";
   if (attachmentText) return `Leí el contenido adjunto. Sus puntos principales son:\n\n${extractiveSummary(attachmentText)}`;
   if (context.intent.name === "casual_conversation") return /\b(?:hola|buenas|buenos dias|buenas tardes|buenas noches)\b/.test(normalized)
     ? "Hola. Aquí estoy, ¿qué hacemos hoy?"
     : "Todo bien por aquí, listo para conversar o ayudarte con lo que tengas en mente. ¿Y tú qué tal?";
-  if (/\b(que puedes hacer|ayuda|capacidades)\b/.test(normalized)) return "Puedo mantener tus chats, trabajar con texto y archivos, reproducir música con modo DJ, usar dictado y conversación por voz, y sincronizar Cloud y dispositivos. Las acciones siempre informan su resultado real.";
+  if (/\b(que puedes hacer|ayuda|capacidades)\b/.test(normalized)) return mobileCapabilitySummary();
+  if (context.intent.name === "inspect_visual") return "Puedo trabajar con una captura o imagen que adjuntes. No puedo mirar tu pantalla o cámara por mi cuenta; para eso necesito una fuente compartida y el permiso correspondiente.";
   const informationSubject = researchSubject(text);
   if (context.intent.name === "ask_information" && informationSubject) return `Sí, puedo ayudarte con ${informationSubject}. ¿Qué quieres saber exactamente?`;
   if (/\b(plan|pasos|organiza|organizar|lista)\b/.test(normalized)) return `Plan propuesto para “${compactText(text, 180)}”:\n\n1. Define el resultado exacto y el límite de tiempo.\n2. Reúne los datos o archivos necesarios.\n3. Divide el trabajo en una primera versión verificable.\n4. Ejecuta y comprueba cada resultado antes de continuar.\n5. Cierra con una revisión y una lista de pendientes reales.`;
@@ -1313,6 +1368,11 @@ async function command(req: Request, payload: any, token: string): Promise<Respo
   for (const id of Array.isArray(payload.attachments) ? payload.attachments.slice(0, 10) : []) {
     const attachment = await readAttachment(String(id));
     if (attachment) { parts.push(attachment.content); cleanup.push(attachment.path); }
+  }
+  const currentNews = context.intent.name === "news_search" ? await currentNewsAnswer(effectiveText) : null;
+  if (currentNews) {
+    await Promise.allSettled(cleanup.map(path => supabase(`/storage/v1/object/archeon-cloud/${path}`, { method: "DELETE" }, "", true)));
+    return reply(req, { ok: true, message: currentNews, context_interpretation: context, engine: "archeon-current-news", intelligence: payload.intelligence || "medium", attachments_consumed: true });
   }
   const followupSubject = contextualResearchSubject(effectiveText, history);
   const researched = await researchedAnswer(followupSubject ? `investiga ${followupSubject}` : effectiveText, Boolean(followupSubject));

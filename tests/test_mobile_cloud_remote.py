@@ -180,6 +180,12 @@ class MobileCloudRemoteTests(unittest.TestCase):
         self.assertIn('definition.governing ? (1 - first)', source)
         self.assertIn('context.intent.name === "create_artifact" ? null : mediaQuery', source)
         self.assertIn('name: "casual_conversation"', source)
+        self.assertIn('name: "news_search"', source)
+        self.assertIn("async function currentNewsAnswer", source)
+        self.assertIn("https://news.google.com/rss/search", source)
+        self.assertIn("const MOBILE_CAPABILITIES", source)
+        self.assertIn('id: "vision", available: false', source)
+        self.assertIn('context.intent.name === "inspect_visual"', source)
 
     def test_chat_titles_use_clean_context_and_empty_chats_are_not_persisted(self) -> None:
         source = Path("supabase/functions/archeon-mobile-api/index.ts").read_text(encoding="utf-8")
