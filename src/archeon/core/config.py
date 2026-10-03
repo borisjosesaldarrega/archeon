@@ -110,6 +110,7 @@ class AssistantConfig:
     listening_paused: bool = False
     pause_listening_phrase: str = "deja de escuchar"
     resume_listening_phrase: str = "vuelve a escuchar"
+    preferred_location: str = ""
 
 
 @dataclass(slots=True)
@@ -586,6 +587,7 @@ class ConfigurationManager(ManagedComponent):
                 listening_paused=bool(assistant.get("listening_paused", False)),
                 pause_listening_phrase=str(assistant.get("pause_listening_phrase", "deja de escuchar")).strip()[:80] or "deja de escuchar",
                 resume_listening_phrase=str(assistant.get("resume_listening_phrase", "vuelve a escuchar")).strip()[:80] or "vuelve a escuchar",
+                preferred_location=str(assistant.get("preferred_location", "")).strip()[:80],
             ),
             clock=ClockConfig(
                 visible=bool(clock.get("visible", True)),

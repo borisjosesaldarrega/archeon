@@ -65,6 +65,7 @@ from archeon.understanding import (
     has_explicit_media_context, has_unnegated,
     is_ambiguous_media_play_verb, is_current_information_request,
     TemporalQueryResolver,
+    LocationMemoryResolver,
 )
 from archeon.documents import DocumentStyleProfile
 
@@ -100,6 +101,7 @@ class ArcheonApplication:
         self.language_repair = NaturalLanguageRepair()
         self.conversation_contexts = ConversationContextManager()
         self.temporal_queries = TemporalQueryResolver()
+        self.location_memory = LocationMemoryResolver()
         self.negation_scope = NegationScopeResolver()
         self.language_context = LanguageContextEngine()
         self.knowledge_router = KnowledgeRouter()
@@ -2867,6 +2869,23 @@ class ArcheonApplication:
                 "data": {"route": "media_rejection", "rejected_id": rejected.id},
                 "correlation_id": None,
             }
+        location_memory = self.location_memory.resolve(text)
+        if location_memory is not None:
+            self.configuration.update_settings({
+                "assistant": {"preferred_location": location_memory.location},
+            })
+            return {
+                "ok": True,
+                "message": f"Listo. Usaré {location_memory.location} como tu ubicación para el clima y otros resultados locales.",
+                "data": {
+                    "route": "location_memory",
+                    "location": location_memory.location,
+                    "confidence": location_memory.confidence,
+                    "evidence": list(location_memory.evidence),
+                    "location_authorized": True,
+                },
+                "correlation_id": None,
+            }
         temporal = self.temporal_queries.resolve(text)
         if temporal is not None:
             now = datetime.now().astimezone()
@@ -2885,11 +2904,11 @@ class ArcheonApplication:
         ))
         if weather_request:
             location_match = re.search(
-                r"\b(?:en|de|para)\s+([a-záéíóúñü][a-záéíóúñü .'-]{1,60}?)(?:\s+(?:hoy|ahora|actualmente))?[.!?]*$",
+                r"\b(?:en|para)\s+([a-záéíóúñü][a-záéíóúñü .'-]{1,60}?)(?:\s+(?:hoy|ahora|actualmente))?[.!?]*$",
                 normalized_text,
                 re.IGNORECASE,
             )
-            location = location_match.group(1).strip(" .") if location_match else ""
+            location = location_match.group(1).strip(" .") if location_match else self.configuration.config.assistant.preferred_location
             if not location or location in {"el dia", "el día", "hoy", "ahora", "este dia", "este día"}:
                 return {
                     "ok": True,

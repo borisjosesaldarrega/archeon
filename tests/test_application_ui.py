@@ -898,6 +898,24 @@ class ApplicationUITests(unittest.TestCase):
         unrelated = self.application.handle_request("me lo dices junto", conversation_id="temporal-b")
         self.assertNotEqual(unrelated.get("data", {}).get("route"), "local_clock")
 
+    def test_explicit_location_memory_is_reused_without_treating_the_request_as_a_city(self) -> None:
+        remembered = self.application.handle_request(
+            "Guayaquil así que guarda mi ubicación para la próxima",
+            conversation_id="location-memory",
+        )
+        self.assertTrue(remembered["ok"])
+        self.assertEqual(remembered["data"]["route"], "location_memory")
+        self.assertEqual(remembered["data"]["location"], "Guayaquil")
+        self.assertEqual(self.application.configuration.config.assistant.preferred_location, "Guayaquil")
+        with patch.object(self.application, "_verified_weather", return_value=None) as weather:
+            response = self.application.handle_request(
+                "me ayudas con el clima de hoy y con las noticias incluidas",
+                conversation_id="location-memory",
+            )
+        weather.assert_called_once_with("Guayaquil")
+        self.assertEqual(response["data"]["requested_location"], "Guayaquil")
+        self.assertNotIn("hoy y con", response["message"].casefold())
+
     def test_desktop_tour_dismissal_is_persisted_outside_browser_origin(self) -> None:
         result = self.application.handle_action("onboarding.complete", {"surface": "desktop"})
         self.assertTrue(result["ok"])

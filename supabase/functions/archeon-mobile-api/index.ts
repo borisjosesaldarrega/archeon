@@ -370,6 +370,7 @@ function publicMobileSettings(account: any = {}, device: any = {}): Record<strin
     assistant: {
       wake_name: String(assistant.wake_name || "ARCHI").slice(0, 24),
       context_language_enabled: assistant.context_language_enabled !== false,
+      preferred_location: String(assistant.preferred_location || "").trim().slice(0, 80),
       configured: Object.prototype.hasOwnProperty.call(assistant, "wake_name"),
     },
     intelligence: {
@@ -398,6 +399,7 @@ async function mobileSettings(req: Request, token: string, user: any, changes: a
     const assistantChanges = changes.assistant && typeof changes.assistant === "object" ? {
       ...(typeof changes.assistant.wake_name === "string" ? { wake_name: changes.assistant.wake_name.trim().slice(0, 24) || "ARCHI" } : {}),
       ...(typeof changes.assistant.context_language_enabled === "boolean" ? { context_language_enabled: changes.assistant.context_language_enabled } : {}),
+      ...(typeof changes.assistant.preferred_location === "string" ? { preferred_location: changes.assistant.preferred_location.trim().slice(0, 80) } : {}),
     } : {};
     const intelligenceChanges = changes.intelligence && typeof changes.intelligence === "object" ? changes.intelligence : {};
     const activationChanges = changes.activation && typeof changes.activation === "object" ? {
@@ -1085,6 +1087,24 @@ function temporalResolution(value: string, history: string[] = []): TemporalReso
   return { fields: TEMPORAL_ORDER.filter(field => matched.has(field)), confidence: score, evidence };
 }
 
+type LocationMemoryResolution = { location: string; confidence: number; evidence: string[] };
+const LOCATION_MEMORY_CONCEPTS = new Set(["guarda", "guardar", "recuerda", "recordar", "memoriza", "conserva", "save", "remember"]);
+const LOCATION_SLOT_CONCEPTS = new Set(["ubicacion", "ciudad", "lugar", "location", "city"]);
+const LOCATION_TRAILING_CONCEPTS = new Set([...LOCATION_MEMORY_CONCEPTS, ...LOCATION_SLOT_CONCEPTS, "asi", "entonces", "para", "proxima", "futuro", "siempre", "mi", "la", "lo", "que", "y"]);
+
+function locationMemoryResolution(value: string): LocationMemoryResolution | null {
+  const normalized = contextFold(value), tokens = normalized.match(/[\p{L}\p{N}]+/gu) || [];
+  const memory = tokens.filter(token => LOCATION_MEMORY_CONCEPTS.has(token)), slots = tokens.filter(token => LOCATION_SLOT_CONCEPTS.has(token));
+  if (!memory.length || !slots.length) return null;
+  const boundary = Math.min(...memory.map(token => tokens.indexOf(token)));
+  const leading = tokens.slice(0, boundary).filter(token => !LOCATION_TRAILING_CONCEPTS.has(token));
+  const explicit = normalized.match(/(?:ubicacion|ciudad|lugar)\s+(?:es|sera)\s+([\p{L}\p{N}\s-]{2,80})/u)?.[1] || "";
+  const candidate = compactText(leading.join(" ") || explicit, 80).replace(/\b(?:asi que|entonces|para la proxima|para el futuro)\b.*$/u, "").trim();
+  if (!candidate) return null;
+  const location = candidate.replace(/\b\p{L}/gu, letter => letter.toLocaleUpperCase("es"));
+  return { location, confidence: Math.min(.99, .8 + (tokens.some(token => ["proxima", "futuro", "siempre"].includes(token)) ? .12 : 0)), evidence: [...memory.map(item => `memory:${item}`), ...slots.map(item => `location:${item}`)] };
+}
+
 function contextEntities(value: string): ContextEntity[] {
   const text = contextFold(value), found: ContextEntity[] = [], occupied: Array<[number, number]> = [];
   const aliases = CONTEXT_ENTITIES.flatMap(definition => definition.aliases.map(alias => ({ alias, definition }))).sort((a, b) => b.alias.length - a.alias.length);
@@ -1099,6 +1119,8 @@ function contextEntities(value: string): ContextEntity[] {
   if (port) found.push({ entity_id: `network.port.${port}`, entity_type: "network_port", name: `Port ${port}`, aliases: [], attributes: { port: Number(port) }, status: "KNOWN", confidence: 1, source: "current_message", position: text.indexOf(port) });
   const location = text.match(/\b(?:soy|vivo|estoy)\s+(?:de|en)\s+([\p{L}][\p{L}\s-]{2,80})$/u);
   if (location) found.push({ entity_id: `location.${location[1].replace(/\s+/g, "_")}`, entity_type: "location", name: location[1].trim(), aliases: [], attributes: { label: location[1].trim() }, status: "KNOWN", confidence: 1, source: "current_message", position: location.index || 0 });
+  const rememberedLocation = locationMemoryResolution(value);
+  if (rememberedLocation && !found.some(item => item.entity_type === "location")) found.push({ entity_id: `location.${contextFold(rememberedLocation.location).replace(/\s+/g, "_")}`, entity_type: "location", name: rememberedLocation.location, aliases: [], attributes: { label: rememberedLocation.location, authorized_for_future: true }, status: "KNOWN", confidence: rememberedLocation.confidence, source: "explicit_location_memory", position: 0 });
   return found.sort((a, b) => a.position - b.position);
 }
 
@@ -1432,6 +1454,18 @@ async function command(req: Request, payload: any, token: string): Promise<Respo
   if (!text || text.length > 16000) return reply(req, { ok: false, error: "invalid_text" }, 400);
   const history = await conversationHistory(payload, token, user, text);
   const context = interpretContext(text, history);
+  const locationMemory = locationMemoryResolution(text);
+  if (locationMemory) {
+    if (user) await mobileSettings(req, token, user, { assistant: { preferred_location: locationMemory.location } });
+    return reply(req, {
+      ok: true,
+      message: user
+        ? `Listo. Usaré ${locationMemory.location} como tu ubicación para el clima y otros resultados locales.`
+        : `Usaré ${locationMemory.location} durante este chat. Inicia sesión para conservarla en tus dispositivos.`,
+      context_interpretation: { ...context, context_sources: [...new Set([...context.context_sources, "explicit_location_memory"])], location_memory: locationMemory },
+      engine: "archeon-location-memory", intelligence: payload.intelligence || "medium", attachments_consumed: true,
+    });
+  }
   if (context.clarification_required || context.requires_confirmation) return reply(req, { ok: true, message: clarificationAnswer(context), context_interpretation: context, attachments_consumed: true });
   const effectiveText = context.interpreted_request;
   const requested = requestedCapabilities(effectiveText);
@@ -1509,7 +1543,10 @@ async function command(req: Request, payload: any, token: string): Promise<Respo
     if (attachment) { parts.push(attachment.content); cleanup.push(attachment.path); }
   }
   if (requested.includes("weather")) {
-    const knownLocation = [...context.entities, ...history.flatMap(item => contextEntities(String(item.body || item.content || "")))].reverse().find(item => item.entity_type === "location");
+    const preferences = user ? await mobileSettings(req, token, user) : null;
+    const storedLocation = String(preferences?.assistant?.preferred_location || "").trim();
+    const knownLocation = [...context.entities, ...history.flatMap(item => contextEntities(String(item.body || item.content || "")))].reverse().find(item => item.entity_type === "location")
+      || (storedLocation ? { name: storedLocation, entity_type: "location" } : null);
     if (!knownLocation) {
       return reply(req, {
         ok: true,
