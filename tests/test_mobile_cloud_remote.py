@@ -206,6 +206,10 @@ class MobileCloudRemoteTests(unittest.TestCase):
         self.assertIn("const MOBILE_CAPABILITIES", source)
         self.assertIn('id: "vision", available: false', source)
         self.assertIn('context.intent.name === "inspect_visual"', source)
+        self.assertIn('session_token: sessionValue.access_token', source)
+        self.assertIn('async function deletePendingAttachment', source)
+        self.assertIn('name === "attachment.remove"', source)
+        self.assertIn('sentAttachments.map(item=>action("attachment.remove"', Path("src/archeon/ui/mobile.js").read_text(encoding="utf-8"))
 
     def test_chat_titles_use_clean_context_and_empty_chats_are_not_persisted(self) -> None:
         source = Path("supabase/functions/archeon-mobile-api/index.ts").read_text(encoding="utf-8")

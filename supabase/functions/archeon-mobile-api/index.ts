@@ -154,8 +154,14 @@ async function auth(req: Request, operation: string, payload: any, token: string
     }
     if (operation === "reset-password") {
       const verified = await jsonOrError(await supabase("/auth/v1/verify", { method: "POST", body: JSON.stringify({ email: payload.email, token: payload.code, type: "recovery" }) }));
-      await jsonOrError(await supabase("/auth/v1/user", { method: "PUT", body: JSON.stringify({ password: payload.password }) }, verified.access_token));
-      return reply(req, { ok: true });
+      const updated = await jsonOrError(await supabase("/auth/v1/user", { method: "PUT", body: JSON.stringify({ password: payload.password }) }, verified.access_token));
+      let sessionValue = { ...verified, user: updated };
+      if (!sessionValue.refresh_token) {
+        sessionValue = await jsonOrError(await supabase("/auth/v1/token?grant_type=password", {
+          method: "POST", body: JSON.stringify({ email: payload.email, password: payload.password }),
+        }));
+      }
+      return reply(req, { ok: true, session_token: sessionValue.access_token, refresh_token: sessionValue.refresh_token, session: publicSession(sessionValue) });
     }
     if (operation === "logout") {
       if (token && !await validGuest(token)) {
@@ -443,7 +449,8 @@ async function action(req: Request, payload: any, token: string): Promise<Respon
     if (name === "settings.update") return reply(req, { ok: true, settings: await mobileSettings(req, token, user, payload.changes ?? {}) });
     if (name === "permissions.list") return reply(req, { ok: true, permissions: [] });
     if (name === "permissions.update") return reply(req, { ok: true, permissions: [] });
-    if (name.startsWith("media.") || name === "attachment.remove") return reply(req, { ok: true, media: { state: "stopped" } });
+    if (name === "attachment.remove") return reply(req, { ok: await deletePendingAttachment(String(payload.id || "")) });
+    if (name.startsWith("media.")) return reply(req, { ok: true, media: { state: "stopped" } });
     if (!user) return reply(req, { ok: false, error: "account_session_required" }, 401);
     const userId = String(user.id);
     const currentDevice = await ensureMobileDevice(req, token, userId);
@@ -612,6 +619,19 @@ async function readAttachment(id: string): Promise<{ content: any; path: string 
   const textMime = String(meta.m).startsWith("text/") || ["application/json", "application/xml"].includes(String(meta.m));
   const excerpt = textMime ? decoder.decode(bytes.slice(0, 80_000)) : `[Archivo adjunto: ${meta.n}, tipo ${meta.m}, ${bytes.length} bytes]`;
   return { path: meta.p, content: { type: "text", text: excerpt } };
+}
+
+async function deletePendingAttachment(id: string): Promise<boolean> {
+  const parts = id.split(".");
+  if (parts.length !== 3 || parts[0] !== "att" || await hmac(parts[1]) !== parts[2]) return false;
+  try {
+    const meta = JSON.parse(decoder.decode(fromBase64Url(parts[1])));
+    if (typeof meta.p !== "string" || !meta.p.startsWith("mobile-pending/")) return false;
+    const response = await supabase(`/storage/v1/object/archeon-cloud/${meta.p}`, { method: "DELETE" }, "", true);
+    return response.ok || response.status === 404;
+  } catch (_) {
+    return false;
+  }
 }
 
 function requestsFileTransferToPc(text: string): boolean {
