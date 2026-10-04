@@ -50,8 +50,19 @@ function fromBase64Url(value: string): Uint8Array {
 }
 
 async function hmac(value: string): Promise<string> {
-  const key = await crypto.subtle.importKey("raw", encoder.encode(GUEST_SECRET), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  return keyedHmac(GUEST_SECRET, value);
+}
+
+async function keyedHmac(secret: string, value: string): Promise<string> {
+  const key = await crypto.subtle.importKey("raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   return base64Url(new Uint8Array(await crypto.subtle.sign("HMAC", key, encoder.encode(value))));
+}
+
+function canonicalJson(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record).sort().map(key => `${JSON.stringify(key)}:${canonicalJson(record[key])}`).join(",")}}`;
 }
 
 async function guestToken(installation: string): Promise<string> {
@@ -288,7 +299,7 @@ async function ensureMobileDevice(req: Request, token: string, userId: string): 
   // heartbeat immediately overwriting that choice with a stale local value.
   const displayName = String(existing?.[0]?.display_name || requestedName).slice(0, 120);
   if (existing?.[0]?.session_revoked_at && String(existing[0].auth_session_id || "") === sessionId) throw new Error("device_session_revoked");
-  const rows = await rest(token, "archeon_devices", "?on_conflict=user_id,installation_id&select=id,installation_id,display_name,platform,capabilities,remote_control_enabled,power_commands_enabled,file_access_enabled,last_seen_at,auth_session_id,session_revoked_at", {
+  const rows = await rest(token, "archeon_devices", "?on_conflict=user_id,installation_id&select=id,installation_id,display_name,platform,public_key,capabilities,remote_control_enabled,power_commands_enabled,file_access_enabled,last_seen_at,auth_session_id,session_revoked_at", {
     method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=representation" },
     body: JSON.stringify({ user_id: userId, installation_id: installation, display_name: displayName, platform: "android", public_key: await hmac(`device:${userId}:${installation}`), capabilities: ["media.play", "launcher.open", "cloud.files"], remote_control_enabled: true, file_access_enabled: true, auth_session_id: sessionId, session_revoked_at: null, last_seen_at: new Date().toISOString(), updated_at: new Date().toISOString() }),
   });
@@ -303,10 +314,14 @@ function jwtSessionId(token: string): string {
   } catch (_) { return ""; }
 }
 
-function desktopRemoteIntent(text: string): { action: string; query: string; targetLabel: string } | null {
+function desktopRemoteIntent(text: string): { action: string; query: string; targetLabel: string; confirmed?: boolean; operation?: string } | null {
   const value = text.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLocaleLowerCase("es").trim().replace(/[.!?¡¿]+$/g, "");
   if (/\b(?:no|nunca|jamas|sin|evita|evitar)\b/.test(value) || /^(?:como|puedo|podria|que pasa|sabes)\b/.test(value)) return null;
   const target = "(?:(?:mi|la|el)\\s+)?(?:pc|computadora|ordenador|equipo|desktop)";
+  const power = value.match(new RegExp(`^(confirmo\\s+)?(apaga|apagar|reinicia|reiniciar)\\s+${target}$`, "u"));
+  if (power) return { action: "system.shutdown", query: "", targetLabel: "", confirmed: Boolean(power[1]), operation: /^reinici/.test(power[2]) ? "restart" : "shutdown" };
+  const namedPower = value.match(/^(confirmo\s+)?(apaga|apagar|reinicia|reiniciar)\s+([\p{L}\p{N}][\p{L}\p{N} _.·-]{1,59})$/u);
+  if (namedPower?.[3]) return { action: "system.shutdown", query: "", targetLabel: namedPower[3].trim(), confirmed: Boolean(namedPower[1]), operation: /^reinici/.test(namedPower[2]) ? "restart" : "shutdown" };
   const launch = value.match(new RegExp(`^(?:abre|abreme|habre|inicia|ejecuta)\\s+(.+?)\\s+en\\s+${target}$`, "u"));
   if (launch?.[1]?.trim().length >= 2) return { action: "launcher.open", query: launch[1].trim(), targetLabel: "" };
   const media = value.match(new RegExp(`^(?:reproduce|reprodus|pon|ponme)\\s+(.+?)\\s+en\\s+${target}$`, "u"));
@@ -372,6 +387,7 @@ function publicMobileSettings(account: any = {}, device: any = {}): Record<strin
   const assistant = account.assistant && typeof account.assistant === "object" ? account.assistant : {};
   const intelligence = account.intelligence && typeof account.intelligence === "object" ? account.intelligence : {};
   const activation = device.activation && typeof device.activation === "object" ? device.activation : {};
+  const approval = account.approval && typeof account.approval === "object" ? account.approval : {};
   return {
     assistant: {
       wake_name: String(assistant.wake_name || "ARCHI").slice(0, 24),
@@ -390,6 +406,13 @@ function publicMobileSettings(account: any = {}, device: any = {}): Record<strin
       background_enabled: Boolean(activation.background_enabled),
       configured: Object.prototype.hasOwnProperty.call(activation, "wake_word_enabled") || Object.prototype.hasOwnProperty.call(activation, "background_enabled"),
     },
+    approval: {
+      mode: ["ask", "balanced", "full_control"].includes(String(approval.mode)) ? String(approval.mode) : "ask",
+      remote_control_enabled: Boolean(approval.remote_control_enabled),
+      terminal_commands_enabled: Boolean(approval.terminal_commands_enabled),
+      power_commands_enabled: Boolean(approval.power_commands_enabled),
+    },
+    permissions: account.permissions && typeof account.permissions === "object" && !Array.isArray(account.permissions) ? account.permissions : {},
   };
 }
 
@@ -412,7 +435,15 @@ async function mobileSettings(req: Request, token: string, user: any, changes: a
       ...(typeof changes.activation.wake_word_enabled === "boolean" ? { wake_word_enabled: changes.activation.wake_word_enabled } : {}),
       ...(typeof changes.activation.background_enabled === "boolean" ? { background_enabled: changes.activation.background_enabled } : {}),
     } : {};
-    account = mergeSettings(account, { assistant: assistantChanges, intelligence: intelligenceChanges });
+    const approvalChanges = changes.approval && typeof changes.approval === "object" ? {
+      ...(["ask", "balanced", "full_control"].includes(String(changes.approval.mode)) ? { mode: String(changes.approval.mode) } : {}),
+      ...(typeof changes.approval.remote_control_enabled === "boolean" ? { remote_control_enabled: changes.approval.remote_control_enabled } : {}),
+      ...(typeof changes.approval.terminal_commands_enabled === "boolean" ? { terminal_commands_enabled: changes.approval.terminal_commands_enabled } : {}),
+      ...(typeof changes.approval.power_commands_enabled === "boolean" ? { power_commands_enabled: changes.approval.power_commands_enabled } : {}),
+    } : {};
+    const permissionChanges = changes.permissions && typeof changes.permissions === "object" && !Array.isArray(changes.permissions)
+      ? Object.fromEntries(Object.entries(changes.permissions).filter(([key, value]) => MOBILE_PERMISSION_CATALOG.some(item => item.id === key) && ["ask", "session", "always", "denied"].includes(String(value)))) : {};
+    account = mergeSettings(account, { assistant: assistantChanges, intelligence: intelligenceChanges, approval: approvalChanges, permissions: permissionChanges });
     device = mergeSettings(device, { activation: activationChanges });
     const updatedAt = new Date().toISOString();
     await rest(token, "account_settings", "?on_conflict=user_id", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ user_id: userId, settings: account, version: Math.max(0, Number(accountRows?.[0]?.version) || 0) + 1, updated_at: updatedAt }) });
@@ -420,6 +451,17 @@ async function mobileSettings(req: Request, token: string, user: any, changes: a
   }
   return publicMobileSettings(account, device);
 }
+
+const MOBILE_PERMISSION_CATALOG = [
+  { id: "microphone.capture", label: "Micrófono", description: "Escuchar y transcribir voz cuando lo solicites.", risk: "medium" },
+  { id: "desktop.observe", label: "Ver la pantalla del PC", description: "Inspeccionar la pantalla del equipo autorizado cuando haga falta.", risk: "read_only" },
+  { id: "desktop.control", label: "Controlar el PC", description: "Usar aplicaciones y completar flujos en el equipo autorizado.", risk: "medium" },
+  { id: "filesystem.read", label: "Leer archivos", description: "Abrir archivos seleccionados o solicitados.", risk: "read_only" },
+  { id: "filesystem.write", label: "Crear y editar archivos", description: "Guardar resultados y cambios solicitados.", risk: "low" },
+  { id: "terminal.execute", label: "Ejecutar comandos", description: "Usar terminal o PowerShell en el equipo autorizado.", risk: "high" },
+  { id: "remote.control", label: "Control entre dispositivos", description: "Enviar órdenes entre dispositivos de esta cuenta.", risk: "high" },
+  { id: "system.power", label: "Apagar o reiniciar", description: "Acción crítica; siempre exige confirmación explícita del equipo.", risk: "critical" },
+];
 
 function remoteFileIntent(text: string): { query: string; targetLabel: string } | null {
   const value = text.trim().replace(/[.!?¡¿]+$/g, "");
@@ -447,8 +489,23 @@ async function action(req: Request, payload: any, token: string): Promise<Respon
   try {
     if (name === "settings.get") return reply(req, { ok: true, settings: await mobileSettings(req, token, user) });
     if (name === "settings.update") return reply(req, { ok: true, settings: await mobileSettings(req, token, user, payload.changes ?? {}) });
-    if (name === "permissions.list") return reply(req, { ok: true, permissions: [] });
-    if (name === "permissions.update") return reply(req, { ok: true, permissions: [] });
+    if (name === "permissions.list") {
+      const settings = await mobileSettings(req, token, user), states = settings.permissions || {};
+      return reply(req, { ok: true, approval: settings.approval, permissions: MOBILE_PERMISSION_CATALOG.map(item => ({ ...item, state: String(states[item.id] || "ask") })) });
+    }
+    if (name === "permissions.update") {
+      if (!user) return reply(req, { ok: false, error: "account_session_required" }, 401);
+      const changes: any = {};
+      if (payload.permission) {
+        const permission = String(payload.permission), state = String(payload.state || "");
+        if (!MOBILE_PERMISSION_CATALOG.some(item => item.id === permission)) throw new Error("unsupported_permission");
+        if (!["ask", "session", "always", "denied"].includes(state)) throw new Error("invalid_permission_state");
+        changes.permissions = { [permission]: state };
+      }
+      if (payload.approval && typeof payload.approval === "object") changes.approval = payload.approval;
+      const settings = await mobileSettings(req, token, user, changes), states = settings.permissions || {};
+      return reply(req, { ok: true, approval: settings.approval, permissions: MOBILE_PERMISSION_CATALOG.map(item => ({ ...item, state: String(states[item.id] || "ask") })) });
+    }
     if (name === "attachment.remove") return reply(req, { ok: await deletePendingAttachment(String(payload.id || "")) });
     if (name.startsWith("media.")) return reply(req, { ok: true, media: { state: "stopped" } });
     if (!user) return reply(req, { ok: false, error: "account_session_required" }, 401);
@@ -1538,14 +1595,21 @@ async function command(req: Request, payload: any, token: string): Promise<Respo
     if (!user) return reply(req, { ok: false, error: "account_session_required" }, 401);
     const source = await ensureMobileDevice(req, token, String(user.id));
     if (!source) return reply(req, { ok: false, error: "current_device_not_registered" }, 400);
-    const targets = await rest(token, "archeon_devices", "?select=id,display_name,platform,remote_control_enabled&platform=eq.windows&remote_control_enabled=eq.true&order=last_seen_at.desc");
+    const targets = await rest(token, "archeon_devices", "?select=id,display_name,platform,remote_control_enabled,power_commands_enabled&platform=eq.windows&remote_control_enabled=eq.true&order=last_seen_at.desc");
     const resolution = remote.targetLabel ? resolveNamedDevice(targets, remote.targetLabel) : { device: targets[0] || null, ambiguous: false };
     const target = resolution.device;
     if (resolution.ambiguous) return reply(req, { ok: false, error: "target_device_ambiguous", message: `Hay más de un dispositivo que coincide con ${remote.targetLabel}. Usa un nombre más específico.` }, 400);
     if (!target) return reply(req, { ok: false, error: "target_device_not_found", message: remote.targetLabel ? `No encontré un dispositivo llamado ${remote.targetLabel}.` : "No encontré una PC ARCHEON activa en esta cuenta." }, 400);
+    if (remote.action === "system.shutdown" && !remote.confirmed) return reply(req, { ok: true, message: `Esta acción afectará a ${target.display_name}. Para continuar escribe exactamente: “Confirmo ${remote.operation === "restart" ? "reiniciar" : "apagar"} ${target.display_name}”.`, confirmation_required: true, target_device: { id: target.id, display_name: target.display_name }, context_interpretation: context, attachments_consumed: true });
+    if (remote.action === "system.shutdown" && !target.power_commands_enabled) return reply(req, { ok: false, error: "remote_power_commands_disabled", message: `Activa “Apagar o reiniciar este PC” en Permisos de ${target.display_name}.` }, 403);
     const id = crypto.randomUUID(), idempotency = crypto.randomUUID(), nonce = crypto.randomUUID().replaceAll("-", ""), expires = new Date(Date.now() + 120_000).toISOString();
-    const signature = await hmac(JSON.stringify({ id, user_id: user.id, source_device_id: source.id, target_device_id: target.id, action: remote.action, query: remote.query, idempotency, nonce, expires }));
-    const rows = await rest(token, "archeon_remote_commands", "?select=id,state", { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify({ id, user_id: user.id, source_device_id: source.id, target_device_id: target.id, action: remote.action, arguments: { query: remote.query }, risk: "standard", state: "queued", idempotency_key: idempotency, nonce, signature, expires_at: expires }) });
+    const confirmationToken = remote.action === "system.shutdown" ? crypto.randomUUID() : "";
+    const confirmationHash = confirmationToken ? Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", encoder.encode(confirmationToken)))).map(value => value.toString(16).padStart(2, "0")).join("") : null;
+    const argumentsValue = remote.action === "system.shutdown" ? { operation: remote.operation, confirmed: true, confirmation_token: confirmationToken } : { query: remote.query };
+    const risk = remote.action === "system.shutdown" ? "high" : "standard";
+    const signingPayload = { id, user_id: user.id, source_device_id: source.id, target_device_id: target.id, action: remote.action, arguments: argumentsValue, risk, idempotency_key: idempotency, nonce, expires_at: expires, confirmation_token_hash: confirmationHash };
+    const signature = await keyedHmac(String(source.public_key || ""), canonicalJson(signingPayload));
+    const rows = await rest(token, "archeon_remote_commands", "?select=id,state", { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify({ ...signingPayload, state: "queued", signature }) });
     return reply(req, { ok: true, message: `Envié la orden a ${target.display_name}.`, remote_command: rows[0], context_interpretation: context, attachments_consumed: true });
   }
   const music = context.intent.name === "create_artifact" ? null : mediaQuery(effectiveText);

@@ -134,6 +134,9 @@ class ApprovalConfig:
     """Local authorization posture for actions that still have no explicit grant."""
 
     mode: str = "ask"
+    remote_control_enabled: bool = False
+    terminal_commands_enabled: bool = True
+    power_commands_enabled: bool = False
 
 
 @dataclass(slots=True)
@@ -276,6 +279,8 @@ class ConfigurationManager(ManagedComponent):
     def set_permission(self, permission: str, state: str) -> None:
         with self._lock:
             self._config.permissions[permission] = state
+            self._config.sync.version += 1
+            self._config.sync.updated_at = datetime.now(timezone.utc).isoformat()
             self.save()
 
     def public_settings(self) -> dict[str, Any]:
@@ -358,6 +363,8 @@ class ConfigurationManager(ManagedComponent):
                         for key in ("profile", "tts_style", "tts_rate", "tts_volume", "barge_in")
                     },
                     "privacy": value["privacy"],
+                    "approval": value["approval"],
+                    "permissions": dict(self._config.permissions),
                     "personality": value["personality"],
                     "media": value["media"],
                     "intelligence": {
@@ -383,7 +390,6 @@ class ConfigurationManager(ManagedComponent):
                     },
                     "appearance": device_appearance,
                     "startup": value["startup"],
-                    "approval": value["approval"],
                 },
             },
         }
@@ -397,6 +403,14 @@ class ConfigurationManager(ManagedComponent):
                 continue
             for section_name, section_value in settings.items():
                 if section_name == "launcher" or not isinstance(section_value, dict):
+                    continue
+                if section_name == "permissions":
+                    current_permissions = dict(self._config.permissions)
+                    current_permissions.update({
+                        str(key): str(value) for key, value in section_value.items()
+                        if str(value) in {"ask", "session", "always", "denied"}
+                    })
+                    current["permissions"] = current_permissions
                     continue
                 section = current.get(section_name)
                 if isinstance(section, dict):
@@ -607,6 +621,9 @@ class ConfigurationManager(ManagedComponent):
                     {"ask", "balanced", "full_control"},
                     "ask",
                 ),
+                remote_control_enabled=bool(approval.get("remote_control_enabled", False)),
+                terminal_commands_enabled=bool(approval.get("terminal_commands_enabled", True)),
+                power_commands_enabled=bool(approval.get("power_commands_enabled", False)),
             ),
             computer_use=ComputerUseConfig(
                 action_display=choice(

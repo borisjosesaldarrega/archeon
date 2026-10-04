@@ -100,12 +100,50 @@ class ToolAndProviderTests(unittest.TestCase):
         self.assertTrue(control.allowed)
         self.assertFalse(critical.allowed)
 
+        high = self.permissions.evaluate(
+            ["test.permission"], risk=RiskLevel.HIGH,
+            action="bounded command", reason="test",
+        )
+        self.assertTrue(high.allowed)
+
         self.permissions.set_state("filesystem.read", PermissionState.DENIED)
         denied = self.permissions.evaluate(
             ["filesystem.read"], risk=RiskLevel.READ_ONLY,
             action="read", reason="test",
         )
         self.assertFalse(denied.allowed)
+
+    def test_explicit_capability_switches_gate_terminal_remote_and_power(self) -> None:
+        self.config.update_settings({"approval": {"mode": "full_control"}})
+        self.config.update_settings({"approval": {"terminal_commands_enabled": False}})
+        for permission, risk in (
+            ("terminal.execute", RiskLevel.HIGH),
+            ("remote.control", RiskLevel.HIGH),
+            ("system.power", RiskLevel.CRITICAL),
+        ):
+            decision = self.permissions.evaluate(
+                [permission], risk=risk, action="test", reason="test",
+                confirmer=lambda _request: True,
+            )
+            self.assertFalse(decision.allowed)
+            self.assertIn("feature disabled", decision.reason)
+
+        self.config.update_settings({"approval": {
+            "terminal_commands_enabled": True,
+            "remote_control_enabled": True,
+            "power_commands_enabled": True,
+        }})
+        terminal = self.permissions.evaluate(
+            ["terminal.execute"], risk=RiskLevel.HIGH,
+            action="terminal", reason="test",
+        )
+        self.assertTrue(terminal.allowed)
+        power = self.permissions.evaluate(
+            ["system.power"], risk=RiskLevel.CRITICAL,
+            action="shutdown", reason="test",
+        )
+        self.assertFalse(power.allowed)
+        self.assertIn("confirmation required", power.reason)
 
     def test_real_system_status_and_orchestrator(self) -> None:
         system = DeviceSystemEngine(self.tools)

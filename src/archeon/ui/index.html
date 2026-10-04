@@ -227,7 +227,7 @@
           <p id="mfa-status" class="provider-note"></p>
           <button id="mfa-enroll" class="outline" type="button" data-i18n="account.mfa_enroll">Configurar aplicación autenticadora</button>
           <img id="mfa-qr" hidden alt="Código QR MFA">
-          <code id="mfa-secret"></code>
+          <details id="mfa-manual" class="mfa-manual" hidden><summary>Usar clave manual</summary><p class="provider-note">Úsala solo si no puedes escanear el QR. No la compartas.</p><code id="mfa-secret"></code></details>
           <div class="mfa-verify" hidden><input id="mfa-code" inputmode="numeric" autocomplete="one-time-code" maxlength="8" placeholder="000000"><button id="mfa-verify" class="primary" type="button" data-i18n="account.mfa_verify">Activar 2FA</button></div>
         </section>
         <details><summary data-i18n="account.danger">Zona de peligro</summary><label><span data-i18n="account.delete_confirm">Escribe DELETE para eliminar la cuenta</span><input id="account-delete-confirm" autocomplete="off"></label><button id="account-delete" class="menu-item logout" type="button" data-i18n="account.delete">Eliminar cuenta permanentemente</button></details>
@@ -279,7 +279,7 @@
             <button type="button" data-settings-section="activation" data-i18n="nav.activation">Activación</button>
             <button type="button" data-settings-section="intelligence">ARCHI</button>
             <button type="button" data-settings-section="music" data-i18n="nav.music">Música</button>
-            <button type="button" data-settings-section="privacy" data-i18n="nav.privacy">Sincronización y datos</button>
+            <button type="button" data-settings-section="privacy">Permisos y control</button>
             <button type="button" class="account-only" data-settings-section="cloud" data-i18n="nav.cloud">Cloud</button>
             <button type="button" class="account-only" data-settings-section="devices">Dispositivos</button>
             <button type="button" data-settings-section="extensions" data-i18n="nav.extensions">Extensiones</button>
@@ -303,9 +303,6 @@
               <label class="check-row"><input id="settings-ghost-topmost" type="checkbox"><span>Mantener Ghost encima de otras ventanas</span></label>
               <button id="settings-repeat-tour" class="outline" type="button">Repetir recorrido</button>
               <p class="provider-note">ARCHEON recuerda si lo cerraste en modo normal o Ghost. Ghost tiene prioridad sobre el modo de ventana cuando está seleccionado.</p>
-              <h4>Permisos para actuar</h4>
-              <label><span>Nivel de aprobación</span><select id="settings-approval-mode"><option value="ask">Solicitar aprobación</option><option value="balanced">Aprobar acciones de solo lectura</option><option value="full_control">Control autorizado</option></select></label>
-              <p class="provider-note" id="settings-approval-help">ARCHEON preguntará antes de usar herramientas que aún no tengan permiso.</p>
               <label><span>Mostrar acciones de Computer Use</span><select id="settings-computer-use-display"><option value="normal">Normal</option><option value="visible">Visible / demostración</option><option value="fast">Rápido</option></select></label>
               <p class="provider-note">En demostración, el cursor se mueve suavemente y ARCHEON resalta el objetivo antes de actuar.</p>
               <h4>Rendimiento visual</h4>
@@ -377,10 +374,23 @@
               </div>
               <div class="settings-inline-note"><span aria-hidden="true">●</span><p id="settings-activation-help">La detección se procesa localmente. Puedes elegir el micrófono y probarlo en Voz y audio.</p><button id="settings-open-voice" class="ghost-action" type="button">Voz y audio</button></div>
             </section>
-            <section class="settings-section" data-settings-panel="privacy" data-search-terms="privacidad cloud nube datos sincronización cuenta">
-              <h3 data-i18n="privacy.title">Privacidad y datos</h3><p data-i18n="privacy.description">ARCHI procesa la inteligencia general en este dispositivo. La nube no se utiliza como proveedor de IA.</p>
-              <div class="privacy-summary"><strong>Procesamiento local por defecto</strong><p>El audio, la pantalla, los modelos y las rutas locales no se suben como parte de la sincronización de preferencias.</p></div>
-              <div class="guest-only session-settings" hidden><strong data-i18n="privacy.local_preferences">Preferencias locales</strong><p class="provider-note" data-i18n="privacy.guest_note">En modo invitado tus cambios se guardan únicamente en este dispositivo. Inicia sesión desde el menú si quieres sincronizarlos.</p></div>
+            <section class="settings-section" data-settings-panel="privacy" data-search-terms="permisos aprobación acceso control remoto terminal comandos apagar reiniciar pantalla archivos">
+              <h3>Permisos y control</h3><p>Decide cuándo puede actuar ARCHEON en este PC y desde tus otros dispositivos.</p>
+              <div class="permission-policy-grid" role="radiogroup" aria-label="Política de aprobación">
+                <label class="permission-policy"><input type="radio" name="approval-policy" value="ask"><span><strong>Preguntar en cada acción</strong><small>Solicita autorización cuando una capacidad todavía no tiene permiso.</small></span></label>
+                <label class="permission-policy"><input type="radio" name="approval-policy" value="balanced"><span><strong>Aprobar permisos necesarios</strong><small>Autoriza lectura y observación; pregunta antes de modificar o controlar.</small></span></label>
+                <label class="permission-policy"><input type="radio" name="approval-policy" value="full_control"><span><strong>Acceso completo</strong><small>Automatiza acciones normales. Las acciones críticas siguen requiriendo confirmación explícita.</small></span></label>
+              </div>
+              <select id="settings-approval-mode" hidden aria-hidden="true"><option value="ask">Preguntar</option><option value="balanced">Automático necesario</option><option value="full_control">Acceso completo</option></select>
+              <p class="provider-note" id="settings-approval-help"></p>
+              <h4>Control entre dispositivos</h4>
+              <label class="check-row"><input id="settings-remote-control" type="checkbox"><span><strong>Permitir órdenes desde mis dispositivos</strong><small>Solo dispositivos de esta cuenta; el PC verifica cada capacidad antes de actuar.</small></span></label>
+              <label class="check-row"><input id="settings-terminal-commands" type="checkbox"><span><strong>Permitir comandos de terminal</strong><small>Habilita PowerShell y herramientas del sistema según la política elegida.</small></span></label>
+              <label class="check-row danger-permission"><input id="settings-power-commands" type="checkbox"><span><strong>Permitir apagar o reiniciar este PC</strong><small>Requiere una orden explícita y confirmación del equipo objetivo, incluso con acceso completo.</small></span></label>
+              <h4>Permisos por capacidad</h4>
+              <div id="desktop-permission-list" class="desktop-permission-list"><p class="provider-note">Cargando permisos…</p></div>
+              <div class="privacy-summary"><strong>Datos locales por defecto</strong><p>Audio, pantalla, rutas y modelos no se sincronizan. Solo se comparte la orden necesaria con el dispositivo autorizado.</p></div>
+              <div class="guest-only session-settings" hidden><strong>Permisos locales</strong><p class="provider-note">En modo invitado los permisos se guardan únicamente en este PC. Inicia sesión para compartirlos con tus dispositivos.</p></div>
             </section>
             <section class="settings-section" data-settings-panel="music" data-search-terms="música canciones original remix cover directo versiones alternativas reproducción">
               <h3>Música</h3><p>Controla qué versión debe elegir ARCHEON al buscar una canción.</p>

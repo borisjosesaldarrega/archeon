@@ -37,7 +37,7 @@ from archeon.desktop import DesktopAgentEngine, WindowsDesktopObserver
 from archeon.documents import DocumentAgentEngine, DocumentReader, DocumentResolver
 from archeon.programming import ProgrammingAgentEngine, ProjectContext, ProjectContextStore
 from archeon.browser import BrowserAgentEngine
-from archeon.cloud import ArcheonCloudClient, RemoteAction, RemoteCommand, RemoteIntentParser
+from archeon.cloud import ArcheonCloudClient, CommandReplayStore, RemoteAction, RemoteCommand, RemoteControlPolicy, RemoteIntentParser
 from archeon.artifacts import (
     ArtifactEngine, DisabledImageProvider, ImageRequest,
     StableDiffusionCppImageProvider,
@@ -52,7 +52,7 @@ from archeon.intelligence import LlamaCppProvider, MemoryPressureGuard, ModelMan
 from archeon.intelligence.models import ModelRegistry
 from archeon.learning import LearningScope, LearningSource, OperationalLearningEngine
 from archeon.plugins import PluginManager, TrustedPublisherVerifier
-from archeon.system import DeviceSystemEngine, configure_launch_at_login
+from archeon.system import DeviceSystemEngine, configure_launch_at_login, schedule_power_action
 from archeon.sync import SupabaseSettingsSync
 from archeon.updates import GitHubReleaseProvider, UpdateManager
 from archeon.ui.server import UIServer
@@ -152,8 +152,10 @@ class ArcheonApplication:
         self.cloud = ArcheonCloudClient(supabase_url, supabase_key)
         self._cloud_device = self._load_cloud_device_identity()
         self._remote_intents = RemoteIntentParser()
+        self._remote_replay = CommandReplayStore(self.paths.secure_dir / "remote-command-replay.json")
         self._remote_stop = Event()
         self._remote_thread: Thread | None = None
+        self._last_remote_authorization_sync = 0.0
         plugin_trust = TrustedPublisherVerifier(self.paths.secure_dir / "trusted-publishers")
         self.plugins = PluginManager(
             self.events, self.paths.plugins_dir,
@@ -334,8 +336,10 @@ class ArcheonApplication:
             installation_id=self._cloud_device["installation_id"],
             display_name=self._cloud_device["display_name"],
             platform="windows", public_key=self._cloud_device["public_key"],
-            capabilities=["media.play", "launcher.open", "cloud.files"],
-            remote_control_enabled=True, file_access_enabled=True,
+            capabilities=["media.play", "launcher.open", "cloud.files", "desktop.observe", "desktop.control", "terminal.execute", "system.shutdown"],
+            remote_control_enabled=self.configuration.config.approval.remote_control_enabled,
+            power_commands_enabled=self.configuration.config.approval.power_commands_enabled,
+            file_access_enabled=True,
         )
         cloud_name = str(registered.get("display_name") or "").strip()[:60]
         if cloud_name and cloud_name != self._cloud_device["display_name"]:
@@ -407,6 +411,19 @@ class ArcheonApplication:
         return {"ok": True, "message": f"Envié {label} a {target.get('display_name', 'tu celular')}.", "data": {"route": "remote_command", "command_id": queued.get("id"), "state": queued.get("state")}}
 
     def _execute_remote_command(self, command: RemoteCommand) -> dict[str, Any]:
+        if command.action == RemoteAction.SHUTDOWN:
+            approval = self.configuration.config.approval
+            if not approval.remote_control_enabled:
+                return {"ok": False, "error": "remote_control_disabled"}
+            if not approval.power_commands_enabled or self.permissions.get_state("system.power") is PermissionState.DENIED:
+                return {"ok": False, "error": "remote_power_commands_disabled"}
+            if command.arguments.get("confirmed") is not True:
+                return {"ok": False, "error": "remote_confirmation_required"}
+            operation = str(command.arguments.get("operation") or "shutdown").lower()
+            try:
+                return schedule_power_action(operation, delay_seconds=30)
+            except (OSError, ValueError) as error:
+                return {"ok": False, "error": str(error)}
         if command.action == RemoteAction.LAUNCH:
             query = self.launcher.normalize(str(command.arguments.get("query") or ""))
             # Remote commands can arrive before the launcher panel has ever
@@ -503,12 +520,42 @@ class ArcheonApplication:
                 if credentials is None:
                     continue
                 identity, access_token = credentials
+                if self.settings_sync.configured and time.monotonic() - self._last_remote_authorization_sync >= 15:
+                    envelopes = self.configuration.sync_payloads()
+                    synchronized = self.settings_sync.synchronize(
+                        identity.user_id, access_token, envelopes["account"], envelopes["device"],
+                    )
+                    if not synchronized.get("queued"):
+                        self.configuration.apply_sync_payloads(synchronized["account"], synchronized["device"])
+                    self._last_remote_authorization_sync = time.monotonic()
                 current = self._register_current_cloud_device(access_token, identity.user_id)
+                devices = self.cloud.list_devices(access_token, identity.user_id)
+                active_devices = {
+                    str(device.get("id")): device for device in devices
+                    if not device.get("session_revoked_at")
+                }
+                policy = RemoteControlPolicy(
+                    str(current["id"]), frozenset(active_devices),
+                    remote_control_enabled=self.configuration.config.approval.remote_control_enabled,
+                    power_commands_enabled=self.configuration.config.approval.power_commands_enabled,
+                )
                 commands = self.cloud.pending_commands(access_token, user_id=identity.user_id, target_device_id=str(current["id"]))
                 for command in commands:
-                    self.cloud.set_command_state(access_token, command.id, "running")
-                    result = self._execute_remote_command(command)
-                    self.cloud.set_command_state(access_token, command.id, "succeeded" if result.get("ok") else "failed", error_code=None if result.get("ok") else str(result.get("error") or "remote_action_failed"), result=result)
+                    try:
+                        source = active_devices.get(command.source_device_id, {})
+                        secret = str(source.get("public_key") or "").encode("utf-8") or None
+                        policy.authorize(
+                            command, secret,
+                            confirmation_token=str(command.arguments.get("confirmation_token") or "") or None,
+                            seen_idempotency_keys=self._remote_replay.values(),
+                        )
+                        self.cloud.set_command_state(access_token, command.id, "running")
+                        result = self._execute_remote_command(command)
+                        if result.get("ok"):
+                            self._remote_replay.add(command.idempotency_key)
+                        self.cloud.set_command_state(access_token, command.id, "succeeded" if result.get("ok") else "failed", error_code=None if result.get("ok") else str(result.get("error") or "remote_action_failed"), result=result)
+                    except PermissionError as error:
+                        self.cloud.set_command_state(access_token, command.id, "rejected", error_code=str(error), result={"ok": False, "error": str(error)})
             except Exception as error:
                 log_event(self.logger, "remote.poll.failed", error_type=type(error).__name__)
 
@@ -3380,6 +3427,9 @@ class ArcheonApplication:
                 "desktop.close": ("Cerrar ventanas", "Cerrar una ventana tras identificarla y verificar el resultado.", "medium"),
                 "clipboard.read": ("Leer portapapeles", "Leer contenido copiado solo cuando se solicite.", "read_only"),
                 "clipboard.write": ("Escribir en portapapeles", "Copiar resultados al portapapeles.", "low"),
+                "terminal.execute": ("Ejecutar comandos", "Usar terminal o PowerShell para completar tareas autorizadas.", "high"),
+                "remote.control": ("Control desde otros dispositivos", "Aceptar órdenes desde tus dispositivos ARCHEON autorizados.", "high"),
+                "system.power": ("Apagar o reiniciar", "Permitir órdenes de energía con confirmación explícita para el equipo indicado.", "critical"),
             }
             if action == "permissions.update":
                 permission = str(payload.get("permission") or "")
@@ -3417,7 +3467,14 @@ class ArcheonApplication:
                 if action == "cloud.devices.list":
                     current = self._register_current_cloud_device(access_token, identity.user_id)
                     devices = self.cloud.list_devices(access_token, identity.user_id)
-                    return {"ok": True, "devices": [device | {"current": device.get("id") == current.get("id")} for device in devices]}
+                    return {
+                        "ok": True,
+                        "devices": [
+                            {key: value for key, value in device.items() if key != "public_key"}
+                            | {"current": device.get("id") == current.get("id")}
+                            for device in devices
+                        ],
+                    }
                 if action == "cloud.devices.rename":
                     current = self._register_current_cloud_device(access_token, identity.user_id)
                     device_id = str(payload.get("device_id") or "")

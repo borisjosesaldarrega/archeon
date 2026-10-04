@@ -22,6 +22,7 @@ from archeon.auth.manager import Identity, ProviderSession
 from archeon.media.providers import MediaSearchResult
 from archeon.cloud import RemoteAction
 from archeon.context import UserRequestContext
+from archeon.core.permissions import PermissionState
 from archeon.understanding import TemporalQueryResolver
 from tests.test_browser_agent import FakeOpener
 from archeon.ui.server import UI_ROOT
@@ -108,6 +109,35 @@ class ApplicationUITests(unittest.TestCase):
         self.assertTrue(result["ok"])
         refresh.assert_called_once_with()
         launch.assert_called_once_with("discord")
+
+    def test_remote_power_requires_opt_in_and_confirmation_without_shutting_down_host(self) -> None:
+        command = SimpleNamespace(
+            action=RemoteAction.SHUTDOWN,
+            arguments={"operation": "restart", "confirmed": True, "confirmation_token": "verified-upstream"},
+        )
+        disabled = self.application._execute_remote_command(command)
+        self.assertFalse(disabled["ok"])
+        self.assertEqual(disabled["error"], "remote_control_disabled")
+
+        self.application.configuration.update_settings({"approval": {
+            "remote_control_enabled": True,
+            "power_commands_enabled": True,
+        }})
+        self.application.permissions.set_state("system.power", PermissionState.ALWAYS)
+        with patch("archeon.app.schedule_power_action", return_value={
+            "ok": True, "action": "restart", "delay_seconds": 30, "cancellable": True,
+        }) as schedule:
+            result = self.application._execute_remote_command(command)
+        self.assertTrue(result["ok"])
+        schedule.assert_called_once_with("restart", delay_seconds=30)
+
+        unconfirmed = SimpleNamespace(
+            action=RemoteAction.SHUTDOWN,
+            arguments={"operation": "shutdown", "confirmed": False},
+        )
+        rejected = self.application._execute_remote_command(unconfirmed)
+        self.assertFalse(rejected["ok"])
+        self.assertEqual(rejected["error"], "remote_confirmation_required")
 
     def test_remote_file_send_uploads_one_exact_match_without_exposing_path(self) -> None:
         source = Path(self.temp.name) / "Muro Colaborativo.pdf"

@@ -96,7 +96,7 @@
         <section class="settings-card settings-link-card" data-account-only><div><span class="settings-card-icon" aria-hidden="true">⌘</span><div><h3>Dispositivos</h3><p>Nombres, actividad, permisos y control remoto.</p></div></div><button type="button" data-settings-panel-target="devices">Administrar</button></section>
         <section class="settings-card"><h3 data-mobile-ui="privacyAccess">Privacidad · Permisos · Accesibilidad</h3><p data-mobile-ui="privacyHelp">Los permisos se solicitan solo cuando usas una función.</p><button id="mobile-settings-permissions-secondary" type="button" data-mobile-ui="reviewPermissions">Revisar permisos</button></section>
         <section class="settings-card mobile-extension-card"><img src="/archeon-cloud-mascot.png" alt="" aria-hidden="true"><div><h3>Extensiones</h3><strong>Aún no hay extensiones disponibles</strong><p>Cuando el catálogo esté listo podrás descubrir extensiones verificadas desde la web de ARCHEON.</p><a href="https://archeon.netlify.app/plugins" target="_blank" rel="noopener noreferrer">Explorar plugins</a></div></section>
-        <section class="settings-card account-card"><h3 data-mobile-ui="account">Cuenta</h3><div data-guest-only><p data-mobile-copy="accountBenefits">Activa ARCHEON Cloud, sincronización y dispositivos.</p><div class="settings-actions"><button id="mobile-login-cta" type="button" data-i18n="access.login">Iniciar sesión</button><button id="mobile-register-cta" type="button" data-i18n="access.register">Crear cuenta</button></div></div><div data-account-only><strong id="mobile-account-name">Cuenta ARCHEON</strong><small id="mobile-account-email"></small><small id="mobile-account-sync">Sincronización activa</small><div class="mobile-mfa-settings"><strong>Autenticación de dos factores · 2FA</strong><small id="mobile-mfa-status">Comprobando seguridad…</small><button id="mobile-mfa-enroll" type="button">Configurar aplicación autenticadora</button><div id="mobile-mfa-setup" hidden><img id="mobile-mfa-qr" alt="Código QR para configurar 2FA"><small>También puedes copiar esta clave:</small><code id="mobile-mfa-secret"></code><label><span>Código de 6 dígitos</span><input id="mobile-mfa-enroll-code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6"></label><button id="mobile-mfa-confirm" type="button">Activar 2FA</button></div><button id="mobile-mfa-remove" class="logout" type="button" hidden>Desactivar 2FA</button></div></div><button id="mobile-logout" class="logout" type="button">Cerrar sesión</button></section>
+        <section class="settings-card account-card"><h3 data-mobile-ui="account">Cuenta</h3><div data-guest-only><p data-mobile-copy="accountBenefits">Activa ARCHEON Cloud, sincronización y dispositivos.</p><div class="settings-actions"><button id="mobile-login-cta" type="button" data-i18n="access.login">Iniciar sesión</button><button id="mobile-register-cta" type="button" data-i18n="access.register">Crear cuenta</button></div></div><div data-account-only><strong id="mobile-account-name">Cuenta ARCHEON</strong><small id="mobile-account-email"></small><small id="mobile-account-sync">Sincronización activa</small><div class="mobile-mfa-settings"><strong>Autenticación de dos factores · 2FA</strong><small id="mobile-mfa-status">Comprobando seguridad…</small><button id="mobile-mfa-enroll" type="button">Configurar aplicación autenticadora</button><div id="mobile-mfa-setup" hidden><img id="mobile-mfa-qr" alt="Código QR para configurar 2FA"><details class="mfa-manual"><summary>Usar clave manual</summary><small>No la compartas.</small><code id="mobile-mfa-secret"></code></details><label><span>Código de 6 dígitos</span><input id="mobile-mfa-enroll-code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6"></label><button id="mobile-mfa-confirm" type="button">Activar 2FA</button></div><button id="mobile-mfa-remove" class="logout" type="button" hidden>Desactivar 2FA</button></div></div><button id="mobile-logout" class="logout" type="button">Cerrar sesión</button></section>
         <section class="settings-card"><h3 data-mobile-ui="about">Acerca de</h3><p>ARCHEON Mobile · DZKnight Company</p><button id="mobile-repeat-tour" type="button">Repetir recorrido</button></section>
       </div>
     </dialog>
@@ -183,6 +183,18 @@
       <section id="mobile-permissions-panel" class="panel">
         <header><div><p class="eyebrow">CONTROL Y PRIVACIDAD</p><h2>Permisos</h2></div><button id="mobile-refresh-permissions" class="small-action" type="button">Actualizar</button></header>
         <p id="mobile-permissions-note" class="note">ARCHEON usa acceso mínimo y solicita cada permiso cuando una función lo necesita.</p>
+        <div class="permission-section" data-account-only>
+          <h3>Política de autorización</h3>
+          <div class="cards">
+            <article class="card mobile-permission-policy">
+              <label><span>Cómo debe aprobar acciones</span><select id="mobile-approval-mode"><option value="ask">Preguntar en cada acción</option><option value="balanced">Aprobar permisos necesarios</option><option value="full_control">Acceso completo</option></select></label>
+              <label class="mobile-check"><input id="mobile-remote-control" type="checkbox"><span><strong>Control entre mis dispositivos</strong><small>Acepta órdenes únicamente desde equipos registrados en esta cuenta.</small></span></label>
+              <label class="mobile-check"><input id="mobile-terminal-commands" type="checkbox"><span><strong>Comandos de terminal en el PC</strong><small>Permite PowerShell y herramientas del sistema conforme a la política.</small></span></label>
+              <label class="mobile-check danger-permission"><input id="mobile-power-commands" type="checkbox"><span><strong>Apagar o reiniciar el PC</strong><small>La orden crítica siempre debe identificar y confirmar el equipo.</small></span></label>
+              <button id="mobile-save-authorization" type="button">Guardar autorización</button>
+            </article>
+          </div>
+        </div>
         <div class="permission-section">
           <h3>Este teléfono</h3>
           <div id="mobile-browser-permissions" class="cards"></div>
@@ -193,9 +205,9 @@
         </div>
         <div class="permission-section" data-account-only>
           <h3>Acciones remotas</h3>
-          <article class="card permission-card locked">
-            <div><strong>Apagado y reinicio remoto</strong><small>Requiere cuenta, dispositivo emparejado y confirmación en el PC.</small></div>
-            <span class="permission-state blocked">No habilitado</span>
+          <article class="card permission-card">
+            <div><strong>Apagado y reinicio remoto</strong><small>El permiso se comparte con el PC, pero la confirmación destructiva nunca se omite.</small></div>
+            <span id="mobile-power-state" class="permission-state blocked">No habilitado</span>
           </article>
         </div>
       </section>

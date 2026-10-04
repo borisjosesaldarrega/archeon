@@ -104,7 +104,8 @@ class ArcheonCloudClient:
     def register_device(
         self, access_token: str, *, user_id: str, installation_id: str,
         display_name: str, platform: str, public_key: str, capabilities: list[str],
-        remote_control_enabled: bool = False, file_access_enabled: bool = True,
+        remote_control_enabled: bool = False, power_commands_enabled: bool = False,
+        file_access_enabled: bool = True,
     ) -> dict[str, Any]:
         session_id = self._jwt_session_id(access_token)
         if not session_id:
@@ -126,6 +127,7 @@ class ArcheonCloudClient:
                 "display_name": effective_name[:120], "platform": platform,
                 "public_key": public_key, "capabilities": sorted(set(capabilities)),
                 "remote_control_enabled": remote_control_enabled,
+                "power_commands_enabled": power_commands_enabled,
                 "file_access_enabled": file_access_enabled,
                 "auth_session_id": session_id,
                 "session_revoked_at": None,
@@ -143,7 +145,7 @@ class ArcheonCloudClient:
         value = self._rest(
             "GET", "archeon_devices", access_token,
             query={
-                "select": "id,display_name,platform,capabilities,remote_control_enabled,power_commands_enabled,file_access_enabled,paired_at,last_seen_at,session_revoked_at",
+                "select": "id,display_name,platform,public_key,capabilities,remote_control_enabled,power_commands_enabled,file_access_enabled,paired_at,last_seen_at,session_revoked_at",
                 "user_id": f"eq.{user_id}", "order": "last_seen_at.desc",
             }, prefer="",
         )

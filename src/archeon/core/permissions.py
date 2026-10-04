@@ -75,6 +75,15 @@ class PermissionEngine:
         required = tuple(sorted(set(permissions)))
         if not required:
             return PermissionDecision(True, "no permissions required")
+        approval = self._configuration.config.approval
+        feature_gates = {
+            "terminal.execute": approval.terminal_commands_enabled,
+            "remote.control": approval.remote_control_enabled,
+            "system.power": approval.power_commands_enabled,
+        }
+        disabled = [permission for permission in required if permission in feature_gates and not feature_gates[permission]]
+        if disabled:
+            return PermissionDecision(False, f"feature disabled: {', '.join(disabled)}")
         states = {permission: self.get_state(permission) for permission in required}
         denied = [permission for permission, state in states.items() if state is PermissionState.DENIED]
         if denied:
@@ -87,12 +96,10 @@ class PermissionEngine:
         pending = [permission for permission, state in states.items() if state is PermissionState.ASK]
         if not pending:
             return PermissionDecision(True, "granted")
-        approval_mode = self._configuration.config.approval.mode
+        approval_mode = approval.mode
         if approval_mode == "balanced" and risk is RiskLevel.READ_ONLY:
             return PermissionDecision(True, "read-only action allowed by balanced approval mode")
-        if approval_mode == "full_control" and risk in {
-            RiskLevel.READ_ONLY, RiskLevel.LOW, RiskLevel.MEDIUM,
-        }:
+        if approval_mode == "full_control" and risk is not RiskLevel.CRITICAL:
             return PermissionDecision(True, "action allowed by full-control approval mode")
         if confirmer is None:
             return PermissionDecision(False, f"confirmation required: {', '.join(pending)}")

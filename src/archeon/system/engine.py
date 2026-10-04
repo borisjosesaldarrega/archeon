@@ -5,6 +5,7 @@ from __future__ import annotations
 import ctypes
 import os
 import platform
+import subprocess
 import sys
 from ctypes import wintypes
 from typing import Any, Mapping
@@ -98,6 +99,22 @@ def system_snapshot() -> dict[str, Any]:
         "memory": memory,
         "process": {"pid": os.getpid(), "working_set_bytes": _process_rss()},
     }
+
+
+def schedule_power_action(action: str, *, delay_seconds: int = 30) -> dict[str, Any]:
+    """Schedule a Windows power action after policy and confirmation were checked upstream."""
+    if sys.platform != "win32":
+        raise OSError("power_action_platform_not_supported")
+    normalized = action.strip().lower()
+    switches = {"shutdown": "/s", "restart": "/r"}
+    if normalized not in switches:
+        raise ValueError("invalid_power_action")
+    delay = max(15, min(300, int(delay_seconds)))
+    subprocess.Popen(
+        ["shutdown.exe", switches[normalized], "/t", str(delay), "/d", "p:0:0", "/c", "ARCHEON: acción confirmada por el usuario"],
+        close_fds=True,
+    )
+    return {"ok": True, "action": normalized, "delay_seconds": delay, "cancellable": True}
 
 
 class SystemStatusTool:
