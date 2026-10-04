@@ -176,7 +176,7 @@
 
       <section id="mobile-devices-panel" class="panel">
         <header><div><p class="eyebrow">CONTROL REMOTO</p><h2>Dispositivos</h2></div></header>
-        <p class="note">Solo se aceptarán órdenes de dispositivos emparejados. Apagar el PC exige activación y confirmación adicional.</p>
+        <p class="note">Solo se aceptarán órdenes de dispositivos emparejados. Con acceso completo y el permiso de energía activo puedes apagar el PC aunque estés fuera de casa.</p>
         <div id="mobile-devices" class="cards"></div>
       </section>
 
@@ -190,7 +190,7 @@
               <label><span>Cómo debe aprobar acciones</span><select id="mobile-approval-mode"><option value="ask">Preguntar en cada acción</option><option value="balanced">Aprobar permisos necesarios</option><option value="full_control">Acceso completo</option></select></label>
               <label class="mobile-check"><input id="mobile-remote-control" type="checkbox"><span><strong>Control entre mis dispositivos</strong><small>Acepta órdenes únicamente desde equipos registrados en esta cuenta.</small></span></label>
               <label class="mobile-check"><input id="mobile-terminal-commands" type="checkbox"><span><strong>Comandos de terminal en el PC</strong><small>Permite PowerShell y herramientas del sistema conforme a la política.</small></span></label>
-              <label class="mobile-check danger-permission"><input id="mobile-power-commands" type="checkbox"><span><strong>Apagar o reiniciar el PC</strong><small>La orden crítica siempre debe identificar y confirmar el equipo.</small></span></label>
+              <label class="mobile-check danger-permission"><input id="mobile-power-commands" type="checkbox"><span><strong>Apagar o reiniciar el PC</strong><small>Con acceso completo, una orden explícita se ejecuta directamente. En otros modos confirmas aquí mismo.</small></span></label>
               <button id="mobile-save-authorization" type="button">Guardar autorización</button>
             </article>
           </div>
@@ -206,7 +206,7 @@
         <div class="permission-section" data-account-only>
           <h3>Acciones remotas</h3>
           <article class="card permission-card">
-            <div><strong>Apagado y reinicio remoto</strong><small>El permiso se comparte con el PC, pero la confirmación destructiva nunca se omite.</small></div>
+            <div><strong>Apagado y reinicio remoto</strong><small>No necesitas estar frente al PC. Acceso completo ejecuta la orden directa; los demás modos confirman desde el móvil.</small></div>
             <span id="mobile-power-state" class="permission-state blocked">No habilitado</span>
           </article>
         </div>

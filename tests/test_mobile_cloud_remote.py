@@ -150,6 +150,17 @@ class MobileCloudRemoteTests(unittest.TestCase):
         self.assertIn('history = stored.reverse()', source)
         self.assertIn('contextualResearchSubject(effectiveText, history)', source)
 
+    def test_full_control_can_execute_explicit_remote_power_without_physical_pc_confirmation(self) -> None:
+        source = Path("supabase/functions/archeon-mobile-api/index.ts").read_text(encoding="utf-8")
+        desktop = Path("src/archeon/ui/index.html").read_text(encoding="utf-8")
+        mobile = Path("src/archeon/ui/mobile.html").read_text(encoding="utf-8")
+        self.assertIn('authorization.approval?.mode === "full_control"', source)
+        self.assertIn('!remote.confirmed && !fullControlPower', source)
+        self.assertIn('confirmation_source: remote.confirmed ? "explicit_remote_followup" : "full_control_policy"', source)
+        self.assertIn("No necesitas estar frente al PC", source)
+        self.assertIn("nunca físicamente en el PC", desktop)
+        self.assertIn("aunque estés fuera de casa", mobile)
+
     def test_mobile_context_uses_registry_threads_and_structured_message_context(self) -> None:
         source = Path("supabase/functions/archeon-mobile-api/index.ts").read_text(encoding="utf-8")
         self.assertIn("const CONTEXT_TOPICS: TopicDefinition[]", source)

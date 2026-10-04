@@ -460,7 +460,7 @@ const MOBILE_PERMISSION_CATALOG = [
   { id: "filesystem.write", label: "Crear y editar archivos", description: "Guardar resultados y cambios solicitados.", risk: "low" },
   { id: "terminal.execute", label: "Ejecutar comandos", description: "Usar terminal o PowerShell en el equipo autorizado.", risk: "high" },
   { id: "remote.control", label: "Control entre dispositivos", description: "Enviar órdenes entre dispositivos de esta cuenta.", risk: "high" },
-  { id: "system.power", label: "Apagar o reiniciar", description: "Acción crítica; siempre exige confirmación explícita del equipo.", risk: "critical" },
+  { id: "system.power", label: "Apagar o reiniciar", description: "Con acceso completo ejecuta una orden explícita; en los otros modos confirma desde el dispositivo solicitante.", risk: "critical" },
 ];
 
 function remoteFileIntent(text: string): { query: string; targetLabel: string } | null {
@@ -1600,12 +1600,14 @@ async function command(req: Request, payload: any, token: string): Promise<Respo
     const target = resolution.device;
     if (resolution.ambiguous) return reply(req, { ok: false, error: "target_device_ambiguous", message: `Hay más de un dispositivo que coincide con ${remote.targetLabel}. Usa un nombre más específico.` }, 400);
     if (!target) return reply(req, { ok: false, error: "target_device_not_found", message: remote.targetLabel ? `No encontré un dispositivo llamado ${remote.targetLabel}.` : "No encontré una PC ARCHEON activa en esta cuenta." }, 400);
-    if (remote.action === "system.shutdown" && !remote.confirmed) return reply(req, { ok: true, message: `Esta acción afectará a ${target.display_name}. Para continuar escribe exactamente: “Confirmo ${remote.operation === "restart" ? "reiniciar" : "apagar"} ${target.display_name}”.`, confirmation_required: true, target_device: { id: target.id, display_name: target.display_name }, context_interpretation: context, attachments_consumed: true });
+    const authorization = await mobileSettings(req, token, user);
+    const fullControlPower = remote.action === "system.shutdown" && authorization.approval?.mode === "full_control";
+    if (remote.action === "system.shutdown" && !remote.confirmed && !fullControlPower) return reply(req, { ok: true, message: `Esta acción afectará a ${target.display_name}. Confírmala desde este dispositivo escribiendo: “Confirmo ${remote.operation === "restart" ? "reiniciar" : "apagar"} ${target.display_name}”. No necesitas estar frente al PC.`, confirmation_required: true, target_device: { id: target.id, display_name: target.display_name }, context_interpretation: context, attachments_consumed: true });
     if (remote.action === "system.shutdown" && !target.power_commands_enabled) return reply(req, { ok: false, error: "remote_power_commands_disabled", message: `Activa “Apagar o reiniciar este PC” en Permisos de ${target.display_name}.` }, 403);
     const id = crypto.randomUUID(), idempotency = crypto.randomUUID(), nonce = crypto.randomUUID().replaceAll("-", ""), expires = new Date(Date.now() + 120_000).toISOString();
     const confirmationToken = remote.action === "system.shutdown" ? crypto.randomUUID() : "";
     const confirmationHash = confirmationToken ? Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", encoder.encode(confirmationToken)))).map(value => value.toString(16).padStart(2, "0")).join("") : null;
-    const argumentsValue = remote.action === "system.shutdown" ? { operation: remote.operation, confirmed: true, confirmation_token: confirmationToken } : { query: remote.query };
+    const argumentsValue = remote.action === "system.shutdown" ? { operation: remote.operation, confirmed: true, confirmation_token: confirmationToken, confirmation_source: remote.confirmed ? "explicit_remote_followup" : "full_control_policy" } : { query: remote.query };
     const risk = remote.action === "system.shutdown" ? "high" : "standard";
     const signingPayload = { id, user_id: user.id, source_device_id: source.id, target_device_id: target.id, action: remote.action, arguments: argumentsValue, risk, idempotency_key: idempotency, nonce, expires_at: expires, confirmation_token_hash: confirmationHash };
     const signature = await keyedHmac(String(source.public_key || ""), canonicalJson(signingPayload));

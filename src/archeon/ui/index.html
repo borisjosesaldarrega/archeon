@@ -379,14 +379,14 @@
               <div class="permission-policy-grid" role="radiogroup" aria-label="Política de aprobación">
                 <label class="permission-policy"><input type="radio" name="approval-policy" value="ask"><span><strong>Preguntar en cada acción</strong><small>Solicita autorización cuando una capacidad todavía no tiene permiso.</small></span></label>
                 <label class="permission-policy"><input type="radio" name="approval-policy" value="balanced"><span><strong>Aprobar permisos necesarios</strong><small>Autoriza lectura y observación; pregunta antes de modificar o controlar.</small></span></label>
-                <label class="permission-policy"><input type="radio" name="approval-policy" value="full_control"><span><strong>Acceso completo</strong><small>Automatiza acciones normales. Las acciones críticas siguen requiriendo confirmación explícita.</small></span></label>
+                <label class="permission-policy"><input type="radio" name="approval-policy" value="full_control"><span><strong>Acceso completo</strong><small>Ejecuta órdenes explícitas autorizadas, incluido apagado remoto si habilitas su permiso.</small></span></label>
               </div>
               <select id="settings-approval-mode" hidden aria-hidden="true"><option value="ask">Preguntar</option><option value="balanced">Automático necesario</option><option value="full_control">Acceso completo</option></select>
               <p class="provider-note" id="settings-approval-help"></p>
               <h4>Control entre dispositivos</h4>
               <label class="check-row"><input id="settings-remote-control" type="checkbox"><span><strong>Permitir órdenes desde mis dispositivos</strong><small>Solo dispositivos de esta cuenta; el PC verifica cada capacidad antes de actuar.</small></span></label>
               <label class="check-row"><input id="settings-terminal-commands" type="checkbox"><span><strong>Permitir comandos de terminal</strong><small>Habilita PowerShell y herramientas del sistema según la política elegida.</small></span></label>
-              <label class="check-row danger-permission"><input id="settings-power-commands" type="checkbox"><span><strong>Permitir apagar o reiniciar este PC</strong><small>Requiere una orden explícita y confirmación del equipo objetivo, incluso con acceso completo.</small></span></label>
+              <label class="check-row danger-permission"><input id="settings-power-commands" type="checkbox"><span><strong>Permitir apagar o reiniciar este PC</strong><small>Con acceso completo basta una orden explícita desde un dispositivo autorizado. En los otros modos confirmas desde ese dispositivo, nunca físicamente en el PC.</small></span></label>
               <h4>Permisos por capacidad</h4>
               <div id="desktop-permission-list" class="desktop-permission-list"><p class="provider-note">Cargando permisos…</p></div>
               <div class="privacy-summary"><strong>Datos locales por defecto</strong><p>Audio, pantalla, rutas y modelos no se sincronizan. Solo se comparte la orden necesaria con el dispositivo autorizado.</p></div>
